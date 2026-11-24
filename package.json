@@ -1,0 +1,12 @@
+{
+  "name": "mapbiomas-chile-silvicultura",
+  "version": "1.0.0",
+  "description": "Flujo de clasificación de silvicultura (pino, eucalipto, cosechado) de MapBiomas Chile Colección 3: muestras, clasificación, filtros y revisión de tendencias, en Google Earth Engine (JavaScript).",
+  "private": true,
+  "scripts": {
+    "check": "node scripts/check_syntax.js",
+    "test": "node scripts/run_tests.js",
+    "docs": "echo 'Los .docx se generan con docs/*/build.js (requiere: npm install docx)'"
+  },
+  "license": "UNLICENSED"
+}
