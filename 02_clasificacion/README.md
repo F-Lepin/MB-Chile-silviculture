@@ -28,6 +28,15 @@ Campo **Buffer alrededor de la ecorregión (km, 0 = no)** en el panel Muestreo; 
 - Mapa: capa **Límite buffer** para ver la franja. Las ecorregiones vecinas se solapan en la franja.
 - Con buffer el cálculo es más pesado; para explorar rápido usa 0 y deja el buffer para exportar.
 
+## Guardar y compartir parámetros
+
+Get Link comparte el código, no el estado de la interfaz. Para que quien abra el enlace vea tus parámetros:
+
+- **URL automática.** Cada vez que cambias un control, la URL del navegador se actualiza con `#cfg=...` (solo los parámetros distintos de los iniciales). Copiar esa URL, o usar Get Link, conserva los parámetros si el Code Editor incluye el fragmento.
+- **Línea en el código (siempre funciona).** En la pestaña Clasificación, «Guardar / compartir parámetros» → «Generar texto» entrega `var CONFIG_INICIAL = '...';`. Reemplaza la línea del mismo nombre al inicio del script y Get Link la lleva dentro del código.
+- **Cargar.** «Cargar desde el texto» acepta esa línea o solo el JSON. Al abrir el script se aplica primero `CONFIG_INICIAL` y después la URL, que manda si trae algo.
+- Qué se guarda: ecorregiones, periodo, años, tipo de modelo, buffer, guía COL2, puntos por clase, árboles, relleno, carpeta y versión de salida, etc. No entrena ni exporta nada: después de cargar, presiona Aplicar parámetros.
+
 ## Relleno de vacíos al exportar
 
 La pestaña Exportar rellena los vacíos de cada año (píxeles sin clasificar porque al mosaico le faltaba algún predictor) con la clasificación del **año más cercano que sí tiene dato** en ese píxel. Casilla **Rellenar vacíos con años vecinos al exportar** (activa por defecto), con distancia máxima (3 años por defecto, tope 10) y prioridad a igual distancia (ANTERIOR por defecto).

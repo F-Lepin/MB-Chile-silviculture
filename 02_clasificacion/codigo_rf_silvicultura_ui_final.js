@@ -46,6 +46,11 @@
 
 Map.setOptions('HYBRID');
 
+// Parámetros guardados para compartir el script. Pestaña Clasificación → «Guardar / compartir parámetros» → «Generar»
+// entrega una línea para reemplazar la siguiente; así el enlace (Get Link) abre el script con tus parámetros.
+// Si la URL trae parámetros (#cfg=...), estos tienen prioridad.
+var CONFIG_INICIAL = '';
+
 // ------------------------------------------------------------------------------------------
 // Parámetros iniciales (modificables desde la interfaz)
 // ------------------------------------------------------------------------------------------
@@ -941,6 +946,7 @@ var btnAll = ui.Button({label: 'All', onClick: function () {
   var nuevo = !todosSel();
   AÑOS_DISP.forEach(function (y) { yearSel[y] = nuevo; estiloAño(y); });
   estiloAll();
+  guardarEnUrl();
 }});
 function estiloAll() {
   var on = todosSel();
@@ -958,7 +964,7 @@ var columnasAños = [0, 1, 2, 3].map(function () {
 AÑOS_DISP.forEach(function (y, i) {
   yearSel[y] = DEF.años.indexOf(y) >= 0;
   yearBtn[y] = ui.Button({label: String(y), onClick: function () {
-    yearSel[y] = !yearSel[y]; estiloAño(y); estiloAll();
+    yearSel[y] = !yearSel[y]; estiloAño(y); estiloAll(); guardarEnUrl();
   }});
   estiloAño(y);
   columnasAños[i % 4].add(yearBtn[y]);
@@ -1930,6 +1936,121 @@ Map.onClick(function (coords) {
       }).join('\n'));
     });
 });
+
+// ------------------------------------------------------------------------------------------
+// Guardar / compartir parámetros
+//   · La URL se actualiza sola (#cfg=...): copiar la URL del navegador o «Get Link» conserva los parámetros.
+//   · Si Get Link no los lleva, «Generar» entrega una línea `var CONFIG_INICIAL = '...';` para pegarla al inicio del script.
+// Solo se guardan los parámetros que difieren de los valores iniciales del script.
+// ------------------------------------------------------------------------------------------
+var PARAMS = [
+  {k: 'eco', w: ecoSelect}, {k: 'ecosEnt', w: ecosEntBox}, {k: 'periodo', w: periodoSelect}, {k: 'ini', w: iniSelect}, {k: 'fin', w: finSelect},
+  {k: 'modelo', w: modeloSelect}, {k: 'verEnt', w: verSelect},
+  {k: 'radio', w: cRadio.box}, {k: 'areaMin', w: cAreaMin.box}, {k: 'bufferKm', w: cBuffer.box},
+  {k: 'guiaCol2', w: guiaCol2Check}, {k: 'umbralDentro', w: cUmbralDentro.box}, {k: 'umbralFuera', w: cUmbralFuera.box}, {k: 'consenso', w: consensoCheck},
+  {k: 'pino', w: cPino.box}, {k: 'euca', w: cEuca.box}, {k: 'otras', w: cOtras.box}, {k: 'agro', w: cAgro.box}, {k: 'cosecha', w: cCosecha.box},
+  {k: 'lectCosecha', w: cLectC.box}, {k: 'fracTest', w: cTest.box}, {k: 'arboles', w: cArb.box},
+  {k: 'cap', w: cCap.box}, {k: 'lectSilvo', w: cLectS.box}, {k: 'lectBase', w: cLectB.box}, {k: 'lectAgro', w: cLectA.box},
+  {k: 'carpeta', w: carpetaBox}, {k: 'version', w: versionBox}, {k: 'todosAnios', w: todosAñosCheck}, {k: 'prob', w: probCheck},
+  {k: 'relleno', w: rellenoCheck}, {k: 'rellenoDist', w: cRellenoDist.box}, {k: 'rellenoPrior', w: rellenoPriorSelect},
+  {k: 'predParticion', w: predParticionCheck}
+];
+function leerParametros() {
+  var o = {};
+  PARAMS.forEach(function (p) { o[p.k] = p.w.getValue(); });
+  o.anios = añosSeleccionados().join(',');
+  return o;
+}
+var PARAMS_INICIALES = leerParametros();       // valores de fábrica del script (antes de aplicar nada)
+
+function parametrosCambiados() {
+  var act = leerParametros(), dif = {};
+  Object.keys(act).forEach(function (k) { if (act[k] !== PARAMS_INICIALES[k]) dif[k] = act[k]; });
+  return dif;
+}
+function aplicarParametros(o) {
+  var n = 0, ignorados = [];
+  PARAMS.forEach(function (p) {
+    if (!o.hasOwnProperty(p.k)) return;
+    var v = o[p.k];
+    var esCheck = typeof PARAMS_INICIALES[p.k] === 'boolean';
+    if (esCheck ? typeof v !== 'boolean' : typeof v !== 'string') { ignorados.push(p.k); return; }
+    p.w.setValue(v, false);                    // sin disparar onChange: se refresca todo al final
+    n++;
+  });
+  if (o.hasOwnProperty('anios') && typeof o.anios === 'string') {
+    var sel = o.anios.split(',').map(function (x) { return parseInt(x, 10); });
+    AÑOS_DISP.forEach(function (y) { yearSel[y] = sel.indexOf(y) >= 0; estiloAño(y); });
+    estiloAll(); n++;
+  }
+  btnExportar.setLabel(todosAñosCheck.getValue() === true ? 'Exportar todos los años (1996–2026)' : 'Exportar años seleccionados');
+  actualizarResumenTablas();
+  actualizarEstadoTablaEnt();
+  return {n: n, ignorados: ignorados};
+}
+function parametrosATexto() { return JSON.stringify(parametrosCambiados()); }
+function guardarEnUrl() {
+  try {
+    if (typeof ui.url === 'undefined' || !ui.url.set) return;
+    var d = parametrosCambiados();
+    if (Object.keys(d).length) ui.url.set('cfg', JSON.stringify(d)); else ui.url.set('cfg', '');
+  } catch (err) { /* sin URL disponible: no es crítico */ }
+}
+// Acepta el JSON solo o la línea completa `var CONFIG_INICIAL = '...';`
+function textoAParametros(txt) {
+  var t = String(txt || '').trim();
+  var m = t.match(/^var\s+CONFIG_INICIAL\s*=\s*'([\s\S]*)'\s*;?$/);
+  if (m) t = m[1].replace(/\\'/g, "'");
+  if (!t) return {};
+  var o = JSON.parse(t);
+  if (!o || typeof o !== 'object' || Array.isArray(o)) throw new Error('El texto no es un objeto de parámetros.');
+  return o;
+}
+
+PARAMS.forEach(function (p) { p.w.onChange(guardarEnUrl); });
+// El resumen del periodo/ecorregiones y el botón de exportar siguen sus propios onChange; este solo guarda en la URL.
+
+var textoParams = ui.Textbox({placeholder: 'Pega aquí los parámetros y presiona Cargar', style: {stretch: 'horizontal', fontSize: '9px'}});
+var estadoParams = nota('');
+var btnGenerarParams = ui.Button({label: 'Generar texto', style: {stretch: 'horizontal'}, onClick: function () {
+  var d = parametrosATexto();
+  var linea = "var CONFIG_INICIAL = '" + d.replace(/'/g, "\\'") + "';";
+  textoParams.setValue(linea);
+  print('Parámetros (' + Object.keys(parametrosCambiados()).length + ' distintos de los iniciales):', linea);
+  estadoParams.setValue('Listo. Copia el texto de arriba (o de la consola) y reemplaza la línea «var CONFIG_INICIAL = \'\';» al inicio del script; ' +
+    'luego Get Link llevará estos parámetros.');
+  estadoParams.style().set('color', '#2E7D32');
+}});
+var btnCargarParams = ui.Button({label: 'Cargar desde el texto', style: {stretch: 'horizontal'}, onClick: function () {
+  try {
+    var r = aplicarParametros(textoAParametros(textoParams.getValue()));
+    guardarEnUrl();
+    estadoParams.setValue('Cargados ' + r.n + ' parámetros' + (r.ignorados.length ? ' (ignorados por tipo no válido: ' + r.ignorados.join(', ') + ')' : '') +
+      '. Presiona Aplicar parámetros para usarlos.');
+    estadoParams.style().set('color', '#2E7D32');
+  } catch (err) {
+    estadoParams.setValue('Error: ' + err.message);
+    estadoParams.style().set('color', '#B71C1C');
+  }
+}});
+panelTabClasif.add(crearSeccion('Guardar / compartir parámetros', [
+  btnGenerarParams, textoParams, btnCargarParams, estadoParams,
+  nota('La URL del navegador se actualiza sola con los parámetros distintos de los iniciales (#cfg=...). Si al compartir con Get Link no se conservan, ' +
+       'usa Generar texto y pega la línea al inicio del script (var CONFIG_INICIAL). Al abrir el script, la URL tiene prioridad sobre CONFIG_INICIAL.\n' +
+       'Cargar no entrena nada: después presiona Aplicar parámetros.')
+]));
+
+// Al abrir: primero CONFIG_INICIAL, después la URL (que manda si trae algo)
+(function () {
+  function cargar(txt, origen) {
+    try { var r = aplicarParametros(textoAParametros(txt)); if (r.n) print('Parámetros cargados desde ' + origen + ': ' + r.n); }
+    catch (err) { print('No se pudieron leer los parámetros de ' + origen + ': ' + err.message); }
+  }
+  if (CONFIG_INICIAL) cargar(CONFIG_INICIAL, 'CONFIG_INICIAL');
+  var u = '';
+  try { u = (typeof ui.url !== 'undefined' && ui.url.get) ? ui.url.get('cfg', '') : ''; } catch (err) { u = ''; }
+  if (u) cargar(typeof u === 'string' ? u : JSON.stringify(u), 'la URL');
+})();
 
 // Estado inicial
 actualizarResumenTablas();
