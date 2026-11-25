@@ -22,7 +22,7 @@
     pedidos = []; reg = []; imagenExportRellena({}, 8, 2000, true, 2, 'ANTERIOR');
     var un = reg.filter(function (x) { return /\.unmask$/.test(x.n); });
     T(un.length === 4 && un.every(function (x) { return x.args[1] === false; }), 'una llamada unmask por año vecino, con sameFootprint = false');
-    T(reg.some(function (x) { return /\.toInt16$/.test(x.n); }) && reg.some(function (x) { return /\.toByte$/.test(x.n); }), 'clase y probabilidades en byte, año_origen en Int16');
+    T(reg.some(function (x) { return /\.toInt16$/.test(x.n); }) && reg.some(function (x) { return /\.toByte$/.test(x.n); }), 'clase y probabilidades en byte, anio_origen en Int16');
   } catch (e) { console.log('FALLA excepción en imagenExportRellena: ' + e.stack.split('\n').slice(0, 3).join(' | ')); }
   ee = eeOrig; imagenExport = imgOrig;
   // --- leerRelleno ---
@@ -51,7 +51,7 @@
     btnExportar.clk();
     T(tareas.length === 2 && llamadas.length === 2 && llamadas.every(function (x) { return x[1] === 3 && x[2] === 'ANTERIOR'; }), 'exportar con relleno: usa imagenExportRellena (3 años, ANTERIOR)');
     T(tareas.every(function (t) { return t.image.props.relleno === 1 && t.image.props.relleno_max_dist === 3; }), 'propiedades relleno = 1 y relleno_max_dist = 3');
-    T(tareas.every(function (t) { return t.pyramidingPolicy.año_origen === 'mode'; }), 'pirámide de año_origen = mode');
+    T(tareas.every(function (t) { return t.pyramidingPolicy.anio_origen === 'mode'; }), 'pirámide de anio_origen = mode');
     tareas = []; llamadas = []; rellenoCheck.setValue(false);
     btnExportar.clk();
     T(tareas.length === 2 && llamadas.every(function (x) { return x[2] === 'sin'; }) && tareas.every(function (t) { return t.image.props.relleno === 0; }), 'exportar sin relleno: usa imagenExport y relleno = 0');

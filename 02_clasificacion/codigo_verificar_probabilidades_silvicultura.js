@@ -55,8 +55,8 @@ var res = {};               // nombre -> {bandas, conProb, error}
 var pendientes = objetivo.slice();
 var enCurso = 0, hechos = 0;
 
-// La banda año_origen (exportaciones con relleno de vacíos) se ignora al comparar.
-function sinAñoOrigen(b) { return b.filter(function (x) { return x !== 'año_origen'; }); }
+// La banda anio_origen (exportaciones con relleno de vacíos) se ignora al comparar.
+function sinAñoOrigen(b) { return b.filter(function (x) { return x !== 'anio_origen'; }); }
 
 function igualesBandas(b) {
   b = sinAñoOrigen(b);

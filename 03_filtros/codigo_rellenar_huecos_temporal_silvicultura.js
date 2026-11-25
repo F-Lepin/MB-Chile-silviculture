@@ -7,7 +7,7 @@
 //   entrada : silvo_e{eco}_{año}_{VERSION_ENTRADA}
 //   salida  : silvo_e{eco}_{año}_{VERSION_SALIDA}   con dos bandas:
 //               silvicultura  clase (1 pino, 2 eucalipto, 3 otras, 4 cosechado)
-//               año_origen    año de donde sale cada píxel (= el propio año si no se rellenó)
+//               anio_origen    año de donde sale cada píxel (= el propio año si no se rellenó)
 //
 // Orden de relleno: años a distancia 1, luego 2, etc. hasta MAX_DISTANCIA. A igual distancia manda PRIORIDAD
 // ('ANTERIOR' usa primero el año previo; 'SIGUIENTE' el posterior). Los píxeles que siguen sin dato después de
@@ -63,18 +63,18 @@ function desplazamientos() {
   return out;
 }
 
-// Imagen de dos bandas (clase, año_origen) de un año, con huecos rellenados
+// Imagen de dos bandas (clase, anio_origen) de un año, con huecos rellenados
 function rellenado(ids, y) {
   var propio = ee.Image(ids[y]).select(0).rename('silvicultura');
-  var out = propio.addBands(ee.Image.constant(y).rename('año_origen').updateMask(propio.mask()));
+  var out = propio.addBands(ee.Image.constant(y).rename('anio_origen').updateMask(propio.mask()));
   desplazamientos().forEach(function (d) {
     var yy = y + d;
     if (!ids[yy]) return;                                   // ese año no está exportado
     var vecino = ee.Image(ids[yy]).select(0).rename('silvicultura');
-    var vecinoAño = ee.Image.constant(yy).rename('año_origen').updateMask(vecino.mask());
+    var vecinoAño = ee.Image.constant(yy).rename('anio_origen').updateMask(vecino.mask());
     out = out.unmask(vecino.addBands(vecinoAño));
   });
-  return out.select('silvicultura').toByte().addBands(out.select('año_origen').toInt16());
+  return out.select('silvicultura').toByte().addBands(out.select('anio_origen').toInt16());
 }
 
 print('Entrada: versión ' + VERSION_ENTRADA + ' → salida ' + VERSION_SALIDA + ' · distancia máx. ' + MAX_DISTANCIA +

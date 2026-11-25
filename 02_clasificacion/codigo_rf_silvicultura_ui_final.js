@@ -704,7 +704,7 @@ function imagenExport(m, eco, y, conProb) {
 // Un vacío es un píxel sin clasificar porque al mosaico de ese año le faltaba algún predictor. Se rellena con la clasificación
 // del año más cercano que sí tiene dato en ese píxel (la misma idea de rellenar_huecos_temporal_silvicultura y del paso S1 del
 // pipeline de filtros), pero aquí los años vecinos se clasifican con el mismo modelo, así que no hace falta exportarlos antes.
-// Se rellenan TODAS las bandas (clase y probabilidades) desde el mismo año vecino y se agrega 'año_origen' (= el propio año
+// Se rellenan TODAS las bandas (clase y probabilidades) desde el mismo año vecino y se agrega 'anio_origen' (= el propio año
 // si el píxel no se rellenó). Orden: distancia 1, luego 2, … hasta maxD; a igual distancia manda prior (ANTERIOR o SIGUIENTE).
 // Los años fuera de 1996–2026 no se usan: 1996 solo se rellena con años posteriores y 2026 con anteriores.
 function desplazamientosRelleno(maxD, prior) {
@@ -716,7 +716,7 @@ function desplazamientosRelleno(maxD, prior) {
 }
 
 function conAñoOrigen(im, y) {
-  return im.addBands(ee.Image.constant(y).rename('año_origen').updateMask(im.select(0).mask()));
+  return im.addBands(ee.Image.constant(y).rename('anio_origen').updateMask(im.select(0).mask()));
 }
 
 function imagenExportRellena(m, eco, y, conProb, maxD, prior) {
@@ -728,7 +728,7 @@ function imagenExportRellena(m, eco, y, conProb, maxD, prior) {
     if (yy < AÑOS_DISP[0] || yy > AÑOS_DISP[AÑOS_DISP.length - 1]) return;
     out = out.unmask(conAñoOrigen(imagenExport(m, eco, yy, conProb), yy), false);
   });
-  return out.select(nombres).toByte().addBands(out.select('año_origen').toInt16());
+  return out.select(nombres).toByte().addBands(out.select('anio_origen').toInt16());
 }
 
 // Geometría de la ecorregión (vector E{n}); con bufferKm > 0 se le suma una franja geodésica de esa distancia.
@@ -1104,7 +1104,7 @@ panelTabExportar.add(crearSeccion('Exportar clasificación', [
        'Bandas del asset: silvicultura (clase 1 pino, 2 euca, 3 otras, 4 cosechado), p_pino, p_euca, p_cosechado y p_otras ' +
        '(suman ~100) y probabilidad (la de la clase asignada). Todas 0–100. La clase es siempre la banda 0.\n' +
        'Relleno de vacíos: un píxel sin dato en un año (al mosaico le faltaba algún predictor) toma la clasificación del año más cercano que sí tiene dato, ' +
-       'hasta la distancia indicada; el asset agrega la banda año_origen (= el propio año si no se rellenó). Los años vecinos se clasifican con el mismo ' +
+       'hasta la distancia indicada; el asset agrega la banda anio_origen (= el propio año si no se rellenó). Los años vecinos se clasifican con el mismo ' +
        'modelo, aunque no se exporten. Cada tarea clasifica hasta 2 × distancia + 1 años, así que es más pesada: si se queda sin memoria o tarda demasiado, ' +
        'baja la distancia o desmarca el relleno y usa después rellenar_huecos_temporal_silvicultura sobre los assets ya exportados. ' +
        'Si rellenas aquí, el paso S1 del pipeline de filtros ya no tiene nada que hacer.')
@@ -1723,7 +1723,7 @@ btnExportar.onClick(function () {
       }),
       description: nombre, assetId: carpeta + '/' + nombre,
       region: region, scale: ESCALA, maxPixels: 1e13,
-      pyramidingPolicy: {'.default': 'mean', 'silvicultura': 'mode', 'año_origen': 'mode'}
+      pyramidingPolicy: rel.on ? {'.default': 'mean', 'silvicultura': 'mode', 'anio_origen': 'mode'} : {'.default': 'mean', 'silvicultura': 'mode'}
     });
     creadas.push(nombre);
   });

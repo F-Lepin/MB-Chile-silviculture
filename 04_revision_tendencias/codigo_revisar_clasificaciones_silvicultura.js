@@ -194,16 +194,16 @@ function desplazamientos(maxD, prior) {
   return out;
 }
 
-// Imagen de dos bandas (silvicultura, año_origen) del año y con huecos rellenados
+// Imagen de dos bandas (silvicultura, anio_origen) del año y con huecos rellenados
 function rellenadoAño(eco, ver, y, r) {
   var ids = CAT[eco][ver];
   var propio = ee.Image(ids[y]).select(0).rename('silvicultura');
-  var out = propio.addBands(ee.Image.constant(y).rename('año_origen').updateMask(propio.mask()));
+  var out = propio.addBands(ee.Image.constant(y).rename('anio_origen').updateMask(propio.mask()));
   desplazamientos(r.maxD, r.prior).forEach(function (d) {
     var yy = y + d;
     if (!ids[yy]) return;
     var vecino = ee.Image(ids[yy]).select(0).rename('silvicultura');
-    out = out.unmask(vecino.addBands(ee.Image.constant(yy).rename('año_origen').updateMask(vecino.mask())));
+    out = out.unmask(vecino.addBands(ee.Image.constant(yy).rename('anio_origen').updateMask(vecino.mask())));
   });
   return out;
 }
@@ -275,7 +275,7 @@ function dibujar() {
     var lleno = rellenadoAño(eco, ver, yr, rel);
     img = lleno.select('silvicultura');
     // distancia en años entre el año mostrado y el año de origen; solo donde se rellenó
-    var dist = lleno.select('año_origen').subtract(yr).abs();
+    var dist = lleno.select('anio_origen').subtract(yr).abs();
     capaRell.setEeObject(dist.updateMask(dist.gt(0)));
   } else {
     capaRell.setEeObject(vacia);
