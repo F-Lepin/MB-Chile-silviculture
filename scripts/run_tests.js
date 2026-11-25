@@ -7,6 +7,7 @@ const tests = [
   'tests/filtros/test_pipeline.js',        // pasos S1–S6 del pipeline (núcleo + casos límite)
   'tests/filtros/smoke_ui_pipeline.js',    // interfaz del pipeline de filtros
   'tests/clasificacion/test_buffer.js',   // buffer de la ecorregión en el clasificador
+  'tests/clasificacion/test_particion.js', // exportación de la partición train/test
   'tests/revision/test_fuente.js',         // selector de fuente (pre-integración / reglas / HMM)
   'tests/revision/test_nombres.js',        // lectura de nombres de assets de integración
   'tests/revision/test_b1.js',             // bandas b1…bN = 1996…

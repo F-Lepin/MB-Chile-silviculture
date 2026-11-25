@@ -77,6 +77,8 @@ var IDS_EXCLUIDOS_BASE = [79, 80, 9, 27];
 // --- Rutas ---
 var CARPETA_TABLAS = 'projects/mapbiomas-chile/assets/LULC/COLLECTION-03/SAMPLES/SAMPLES_TRIMESTRAL';
 var CARPETA_MAESTRA = 'projects/mapbiomas-chile/assets/LULC/COLLECTION-03/SAMPLES/SAMPLES_COL3/SILVICULTURE/MODEL_SAMPLES';
+// Tablas de partición train/test que exporta el panel Exportar (la carpeta debe existir). Por defecto, junto a las maestras.
+var CARPETA_PARTICION = CARPETA_MAESTRA;
 var ASSET_TRIMESTRAL = 'projects/mapbiomas-mosaics/assets/LANDSAT/LULC/CHILE/mosaics-3-trimestral';
 var ASSET_ECO_RASTER = 'projects/mapbiomas-chile/assets/LULC/COLLECTION-03/ANCILLARY_DATA/ECORREGIONES_RASTER/ecorregiones_col3_30m';
 var CARPETA_ECO_VECTOR = 'projects/mapbiomas-chile/assets/LULC/COLLECTION-03/ANCILLARY_DATA/ECORREGIONES';
@@ -717,6 +719,36 @@ function regionEco(eco, bufferKm) {
   return bufferKm > 0 ? b.buffer(bufferKm * 1000).bounds() : b;
 }
 
+// ------------------------------------------------------------------------------------------
+// Partición train/test exportable
+// ------------------------------------------------------------------------------------------
+// La partición no está guardada en las maestras: se decide al entrenar, por polígono (test si azar_poly < fracTest). Esta tabla
+// deja constancia de los PUNTOS que se usaron: los de train y los de test de la última ejecución, con la columna 'conjunto'.
+// Una tabla por modelo (con modelo por periodo, una por periodo). Clases originales (1 pino, 2 euca, 3 otras, 4 cosechado;
+// 'fondo' 1 = base y 2 = agro en la maestra con agro). El modelo de especie usa solo los puntos 1 y 2 de train/test.
+var PROPS_PARTICION = ['conjunto', 'clase', 'fondo', 'especie', 'dif', 'qc', 'azar_poly', 'azar_pt', 'yr', 'eco'];
+
+function nombreParticion(cfg, ini, fin, ver) { return 'split_e' + cfg.ecosEnt.join('-') + '_' + ini + '-' + fin + '_' + ver; }
+
+// sub = un modelo ({train, test, cfg}); conPred = conserva también los 49 predictores (tabla pesada)
+function tablaParticion(sub, conPred, ver) {
+  var c = sub.cfg;
+  var tr = sub.train.map(function (f) { return f.set('conjunto', 'train'); });
+  var te = sub.test.map(function (f) { return f.set('conjunto', 'test'); });
+  var t = tr.merge(te);
+  if (!conPred) {
+    t = t.map(function (f) {
+      return ee.Feature(f.geometry(), f.toDictionary().select(PROPS_PARTICION, true));   // true = ignora las columnas que no existan
+    });
+  }
+  return t.set({
+    version: ver, eco: c.eco, ecos_ent: c.ecosEnt.join(','), fondo_ver: c.verEnt, modo: c.modo,
+    periodo: c.ini + '-' + c.fin, frac_test: c.fracTest, regla_test: 'azar_poly < frac_test',
+    pino_train: c.pino, euca_train: c.euca, otras_train: c.otras, agro_train: c.agro, cosecha_train: c.cosecha,
+    semilla: SEMILLA, con_predictores: conPred ? 1 : 0
+  });
+}
+
 // ==========================================================================================
 // INTERFAZ
 // ==========================================================================================
@@ -1002,6 +1034,12 @@ var btnVerificar = ui.Button({label: 'Verificar que el modelo reproduce la versi
 var btnAgregarProb = ui.Button({label: 'Exportar versión + probabilidades', style: {stretch: 'horizontal'}});
 var estadoProb = nota('Aplica primero los MISMOS parámetros con que se exportó la versión de origen.');
 
+// --- Partición train/test ---
+var predParticionCheck = ui.Checkbox({label: 'Incluir también los predictores (tabla más pesada)', value: false,
+  style: {fontSize: '10px', margin: '4px 0 2px 0'}});
+var btnParticion = ui.Button({label: 'Exportar partición train/test', style: {stretch: 'horizontal'}});
+var estadoParticion = nota('Presiona Aplicar parámetros antes de exportar.');
+
 var panelTabExportar = ui.Panel({style: {stretch: 'horizontal', margin: '0', padding: '0'}});
 panelTabExportar.add(crearSeccion('Exportar clasificación', [
   ui.Label('Carpeta', {fontSize: '10px', margin: '0 0 2px 0'}), carpetaBox,
@@ -1018,6 +1056,16 @@ panelTabExportar.add(crearSeccion('Exportar clasificación', [
        'Con la casilla marcada se exportan los 31 años aunque no estén cargados en el mapa. Los assets existentes se omiten.\n' +
        'Bandas del asset: silvicultura (clase 1 pino, 2 euca, 3 otras, 4 cosechado), p_pino, p_euca, p_cosechado y p_otras ' +
        '(suman ~100) y probabilidad (la de la clase asignada). Todas 0–100. La clase es siempre la banda 0.')
+]));
+
+panelTabExportar.add(crearSeccion('Exportar partición train/test', [
+  predParticionCheck, btnParticion, estadoParticion,
+  nota('Guarda los puntos de entrenamiento y de validación de la última ejecución, con la columna conjunto (train / test). ' +
+       'Un asset por modelo (por periodo si el modelo es por periodo): split_e{ecos}_{ini}-{fin}_{versión}, en la carpeta de las maestras ' +
+       '(debe existir). La versión es la del campo de arriba: úsala igual que en la clasificación. ' +
+       'Columnas: conjunto, clase, fondo (1 base · 2 agro), azar_poly, azar_pt, yr, eco y la geometría del punto; con la casilla, también los predictores. ' +
+       'Las propiedades del asset guardan la fracción de test, los puntos por clase, la semilla y las ecorregiones de entrenamiento. ' +
+       'Los assets existentes se omiten.')
 ]));
 
 // --- Clasificaciones ya exportadas ---
@@ -1628,6 +1676,26 @@ btnExportar.onClick(function () {
     (todos && cfg.consenso ? '\nAviso: con consenso temporal y todos los años, cada tarea promedia 31 años (más pesada).' : '') +
     '\nLánzalas en la pestaña Tasks.');
   estadoExport.style().set('color', creadas.length ? '#2E7D32' : '#B71C1C');
+});
+
+btnParticion.onClick(function () {
+  if (!MODELO) { estadoParticion.setValue('Primero presiona Aplicar parámetros.'); estadoParticion.style().set('color', '#B71C1C'); return; }
+  var cfg = MODELO.cfg;
+  var ver = String(versionBox.getValue()).trim() || 'v1';
+  if (!/^[A-Za-z0-9_\-]+$/.test(ver)) { estadoParticion.setValue('La versión solo admite letras, números, _ y -.'); estadoParticion.style().set('color', '#B71C1C'); return; }
+  var conPred = predParticionCheck.getValue() === true;
+  var carpeta = CARPETA_PARTICION.replace(/\/+$/, '');
+  var modelos = MODELO.partes ? MODELO.partes : [MODELO];
+  var creadas = [], omitidas = [];
+  modelos.forEach(function (sub) {
+    var nombre = nombreParticion(cfg, sub.cfg.ini, sub.cfg.fin, ver);
+    if (existe(carpeta + '/' + nombre)) { omitidas.push(nombre); return; }
+    Export.table.toAsset({collection: tablaParticion(sub, conPred, ver), description: nombre, assetId: carpeta + '/' + nombre});
+    creadas.push(nombre);
+  });
+  estadoParticion.setValue('Tareas creadas (' + creadas.length + '): ' + (creadas.join(', ') || '—') +
+    (omitidas.length ? '\nYa existen (omitidas): ' + omitidas.join(', ') : '') + '\nLánzalas en la pestaña Tasks.');
+  estadoParticion.style().set('color', creadas.length ? '#2E7D32' : '#B71C1C');
 });
 
 // --- Agregar probabilidades a una versión ya exportada ---

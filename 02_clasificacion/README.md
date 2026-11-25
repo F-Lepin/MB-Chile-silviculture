@@ -28,6 +28,16 @@ Campo **Buffer alrededor de la ecorregión (km, 0 = no)** en el panel Muestreo; 
 - Mapa: capa **Límite buffer** para ver la franja. Las ecorregiones vecinas se solapan en la franja.
 - Con buffer el cálculo es más pesado; para explorar rápido usa 0 y deja el buffer para exportar.
 
+## Partición train/test
+
+La partición no está guardada en las tablas maestras: se decide al entrenar, **por polígono**. Un punto es test si su `azar_poly` (valor fijo de 0 a 1 calculado desde el ID del polígono) es menor que la fracción de test, y train si no. En la pestaña **Exportar** el botón **Exportar partición train/test** guarda los puntos que se usaron en la última ejecución.
+
+- **Asset:** `split_e{ecos}_{ini}-{fin}_{versión}` en la carpeta de las maestras (`MODEL_SAMPLES`, debe existir). Con modelo por periodo, uno por periodo. La versión es la del campo Versión de la clasificación.
+- **Columnas:** `conjunto` (train / test), `clase` (1 pino, 2 eucalipto, 3 otras, 4 cosechado), `fondo` (1 base, 2 agro, solo con la maestra con agro), `azar_poly`, `azar_pt`, `yr`, `eco` y la geometría del punto. Con la casilla "Incluir también los predictores" conserva los 49 predictores (tabla más pesada).
+- **Propiedades del asset:** fracción de test, puntos por clase (`pino_train`, `euca_train`, …), semilla, ecorregiones de entrenamiento, versión de la maestra y periodo.
+- El modelo de especie usa solo los puntos de clase 1 y 2 de cada conjunto; el de máscara usa todos (pino y eucalipto fusionados).
+- Presiona Aplicar parámetros antes de exportar: la tabla corresponde al modelo de la última ejecución.
+
 ## Salida
 
 `CLASSIFICATIONS/PRELIMINAR/SILVICULTURA/silvo_e{eco}_{año}_{versión}`, con las bandas `silvicultura` (1 pino, 2 eucalipto, 3 otras, 4 cosechado), `p_pino`, `p_euca`, `p_cosechado`, `p_otras` y `probabilidad`.
