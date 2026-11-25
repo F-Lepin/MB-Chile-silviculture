@@ -48,7 +48,7 @@ archivo/                     versiones anteriores de scripts, solo referencia
 
 ```bash
 node scripts/check_syntax.js   # sintaxis de todos los .js
-node scripts/run_tests.js      # 9 tests con simulaciones
+node scripts/run_tests.js      # 10 tests con simulaciones
 ```
 
 Los tests usan **simulaciones** de la API de Earth Engine y de los widgets: comprueban la lógica de los scripts, pero no sus resultados sobre los assets reales. Ningún script de este repo se ha validado automáticamente contra GEE; la prueba real es correrlo en el Code Editor.

@@ -16,7 +16,7 @@ Toma las clasificaciones preliminares ya exportadas y aplica, por ecorregión y 
 | Script | Qué hace |
 | --- | --- |
 | `codigo_pipeline_filtros_silvicultura.js` | Pipeline S1–S6 con interfaz: activar o desactivar pasos, editar parámetros, ver cada etapa y los píxeles cambiados por paso. Exporta una imagen por ecorregión. |
-| `codigo_rellenar_huecos_temporal_silvicultura.js` | Relleno de huecos como exportación independiente (`v3` → `v3_rell`). Es la misma idea que S1. |
+| `codigo_rellenar_huecos_temporal_silvicultura.js` | Relleno de huecos como exportación independiente sobre assets ya exportados (`v3` → `v3_rell`). Es la misma idea que S1. El clasificador ya puede rellenar al exportar; este script queda para versiones exportadas sin relleno. |
 
 ## Salida
 

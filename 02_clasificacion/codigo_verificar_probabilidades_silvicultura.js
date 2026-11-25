@@ -55,7 +55,11 @@ var res = {};               // nombre -> {bandas, conProb, error}
 var pendientes = objetivo.slice();
 var enCurso = 0, hechos = 0;
 
+// La banda año_origen (exportaciones con relleno de vacíos) se ignora al comparar.
+function sinAñoOrigen(b) { return b.filter(function (x) { return x !== 'año_origen'; }); }
+
 function igualesBandas(b) {
+  b = sinAñoOrigen(b);
   if (b.length !== BANDAS_ESPERADAS.length) return false;
   for (var i = 0; i < b.length; i++) if (b[i] !== BANDAS_ESPERADAS[i]) return false;
   return true;
@@ -96,7 +100,7 @@ function informe() {
       var estado;
       if (r.error) { errores.push(o.año); estado = 'error'; }
       else if (igualesBandas(r.bandas)) { conOk.push(o.año); estado = 'ok'; }
-      else if (r.bandas.length === 1 && r.bandas[0] === 'silvicultura') { sinProb.push(o.año); estado = 'sin_probabilidad'; }
+      else if (sinAñoOrigen(r.bandas).length === 1 && sinAñoOrigen(r.bandas)[0] === 'silvicultura') { sinProb.push(o.año); estado = 'sin_probabilidad'; }
       else { raros.push(o.año + ' [' + r.bandas.join(',') + ']'); estado = 'bandas_distintas'; }
       if (estado !== 'ok') sinProbLista.push(o.nombre + (estado === 'sin_probabilidad' ? '' : ' (' + estado + ')'));
       filas.push(ee.Feature(null, {eco: eco, año: o.año, asset: o.nombre, estado: estado,

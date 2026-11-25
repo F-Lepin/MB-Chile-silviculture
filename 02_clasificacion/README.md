@@ -28,6 +28,17 @@ Campo **Buffer alrededor de la ecorregión (km, 0 = no)** en el panel Muestreo; 
 - Mapa: capa **Límite buffer** para ver la franja. Las ecorregiones vecinas se solapan en la franja.
 - Con buffer el cálculo es más pesado; para explorar rápido usa 0 y deja el buffer para exportar.
 
+## Relleno de vacíos al exportar
+
+La pestaña Exportar rellena los vacíos de cada año (píxeles sin clasificar porque al mosaico le faltaba algún predictor) con la clasificación del **año más cercano que sí tiene dato** en ese píxel. Casilla **Rellenar vacíos con años vecinos al exportar** (activa por defecto), con distancia máxima (3 años por defecto, tope 10) y prioridad a igual distancia (ANTERIOR por defecto).
+
+- Los años vecinos se clasifican con el mismo modelo, aunque no se exporten; no hace falta tener exportados los otros años.
+- Se rellenan todas las bandas (clase y probabilidades) desde el mismo año vecino, y el asset agrega la banda `año_origen` (el propio año si no se rellenó). 1996 solo se rellena con años posteriores y 2026 con anteriores.
+- Propiedades del asset: `relleno`, `relleno_max_dist` y `relleno_prioridad`.
+- Cada tarea clasifica hasta 2 × distancia + 1 años, así que es más pesada. Si falla por memoria o tiempo, baja la distancia o desmarca el relleno y usa `03_filtros/codigo_rellenar_huecos_temporal_silvicultura.js` sobre los assets ya exportados.
+- Si se rellena aquí, el paso S1 del pipeline de filtros ya no encuentra nada que rellenar.
+- `codigo_verificar_probabilidades_silvicultura.js` acepta la banda extra `año_origen`.
+
 ## Partición train/test
 
 La partición no está guardada en las tablas maestras: se decide al entrenar, **por polígono**. Un punto es test si su `azar_poly` (valor fijo de 0 a 1 calculado desde el ID del polígono) es menor que la fracción de test, y train si no. En la pestaña **Exportar** el botón **Exportar partición train/test** guarda los puntos que se usaron en la última ejecución.

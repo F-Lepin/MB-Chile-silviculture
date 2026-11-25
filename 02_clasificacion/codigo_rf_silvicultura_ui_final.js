@@ -698,6 +698,39 @@ function imagenExport(m, eco, y, conProb) {
   return pb ? clase.addBands(pb) : clase;
 }
 
+// ------------------------------------------------------------------------------------------
+// Relleno de vacíos al exportar
+// ------------------------------------------------------------------------------------------
+// Un vacío es un píxel sin clasificar porque al mosaico de ese año le faltaba algún predictor. Se rellena con la clasificación
+// del año más cercano que sí tiene dato en ese píxel (la misma idea de rellenar_huecos_temporal_silvicultura y del paso S1 del
+// pipeline de filtros), pero aquí los años vecinos se clasifican con el mismo modelo, así que no hace falta exportarlos antes.
+// Se rellenan TODAS las bandas (clase y probabilidades) desde el mismo año vecino y se agrega 'año_origen' (= el propio año
+// si el píxel no se rellenó). Orden: distancia 1, luego 2, … hasta maxD; a igual distancia manda prior (ANTERIOR o SIGUIENTE).
+// Los años fuera de 1996–2026 no se usan: 1996 solo se rellena con años posteriores y 2026 con anteriores.
+function desplazamientosRelleno(maxD, prior) {
+  var out = [];
+  for (var d = 1; d <= maxD; d++) {
+    if (prior === 'SIGUIENTE') { out.push(d); out.push(-d); } else { out.push(-d); out.push(d); }
+  }
+  return out;
+}
+
+function conAñoOrigen(im, y) {
+  return im.addBands(ee.Image.constant(y).rename('año_origen').updateMask(im.select(0).mask()));
+}
+
+function imagenExportRellena(m, eco, y, conProb, maxD, prior) {
+  var base = imagenExport(m, eco, y, conProb);
+  var nombres = base.bandNames();
+  var out = conAñoOrigen(base, y);
+  desplazamientosRelleno(maxD, prior).forEach(function (d) {
+    var yy = y + d;
+    if (yy < AÑOS_DISP[0] || yy > AÑOS_DISP[AÑOS_DISP.length - 1]) return;
+    out = out.unmask(conAñoOrigen(imagenExport(m, eco, yy, conProb), yy), false);
+  });
+  return out.select(nombres).toByte().addBands(out.select('año_origen').toInt16());
+}
+
 // Geometría de la ecorregión (vector E{n}); con bufferKm > 0 se le suma una franja geodésica de esa distancia.
 function geomEco(eco, bufferKm) {
   var g = ee.FeatureCollection(CARPETA_ECO_VECTOR + '/E' + eco).geometry();
@@ -1026,6 +1059,20 @@ todosAñosCheck.onChange(function (v) {
 
 var probCheck = ui.Checkbox({label: 'Incluir bandas de probabilidad (0–100)', value: true,
   style: {fontSize: '10px', margin: '4px 0 2px 0'}});
+var rellenoCheck = ui.Checkbox({label: 'Rellenar vacíos con años vecinos al exportar', value: true,
+  style: {fontSize: '10px', margin: '4px 0 2px 0'}});
+var cRellenoDist = filaCampo('Relleno · distancia máx. (años)', 3);
+var rellenoPriorSelect = ui.Select({
+  items: [{label: 'A igual distancia: primero el año ANTERIOR', value: 'ANTERIOR'},
+          {label: 'A igual distancia: primero el año SIGUIENTE', value: 'SIGUIENTE'}],
+  value: 'ANTERIOR', style: {stretch: 'horizontal', margin: '0 0 4px 0'}
+});
+// Lee el relleno al momento de exportar (no requiere Aplicar parámetros)
+function leerRelleno() {
+  var on = rellenoCheck.getValue() === true;
+  return {on: on, maxD: on ? Math.min(10, parseEntero(cRellenoDist.box.getValue(), 'Distancia del relleno', 1)) : 0,
+          prior: rellenoPriorSelect.getValue() || 'ANTERIOR'};
+}
 
 // --- Agregar probabilidades a una versión ya exportada (assets nuevos: silvo_e{eco}_{año}_{versión}{sufijo}) ---
 var verOrigenBox = ui.Textbox({value: DEF.version, style: {width: '80px'}});
@@ -1044,7 +1091,7 @@ var panelTabExportar = ui.Panel({style: {stretch: 'horizontal', margin: '0', pad
 panelTabExportar.add(crearSeccion('Exportar clasificación', [
   ui.Label('Carpeta', {fontSize: '10px', margin: '0 0 2px 0'}), carpetaBox,
   ui.Label('Versión', {fontSize: '10px', margin: '4px 0 2px 0'}), versionBox,
-  todosAñosCheck, probCheck, btnExportar, estadoExport,
+  todosAñosCheck, probCheck, rellenoCheck, cRellenoDist.fila, rellenoPriorSelect, btnExportar, estadoExport,
   ui.Label('Agregar probabilidades a una versión ya exportada', {fontSize: '11px', fontWeight: 'bold', margin: '10px 0 2px 0'}),
   ui.Label('Versión de origen (la clase se copia tal cual) · sufijo del asset nuevo', {fontSize: '10px', margin: '2px 0 2px 0'}),
   ui.Panel([verOrigenBox, sufijoProbBox], ui.Panel.Layout.flow('horizontal')),
@@ -1055,7 +1102,12 @@ panelTabExportar.add(crearSeccion('Exportar clasificación', [
   nota('Un asset por año: silvo_e{eco}_{año}_{versión}. Usa el modelo de la última ejecución (presiona Aplicar parámetros antes). ' +
        'Con la casilla marcada se exportan los 31 años aunque no estén cargados en el mapa. Los assets existentes se omiten.\n' +
        'Bandas del asset: silvicultura (clase 1 pino, 2 euca, 3 otras, 4 cosechado), p_pino, p_euca, p_cosechado y p_otras ' +
-       '(suman ~100) y probabilidad (la de la clase asignada). Todas 0–100. La clase es siempre la banda 0.')
+       '(suman ~100) y probabilidad (la de la clase asignada). Todas 0–100. La clase es siempre la banda 0.\n' +
+       'Relleno de vacíos: un píxel sin dato en un año (al mosaico le faltaba algún predictor) toma la clasificación del año más cercano que sí tiene dato, ' +
+       'hasta la distancia indicada; el asset agrega la banda año_origen (= el propio año si no se rellenó). Los años vecinos se clasifican con el mismo ' +
+       'modelo, aunque no se exporten. Cada tarea clasifica hasta 2 × distancia + 1 años, así que es más pesada: si se queda sin memoria o tarda demasiado, ' +
+       'baja la distancia o desmarca el relleno y usa después rellenar_huecos_temporal_silvicultura sobre los assets ya exportados. ' +
+       'Si rellenas aquí, el paso S1 del pipeline de filtros ya no tiene nada que hacer.')
 ]));
 
 panelTabExportar.add(crearSeccion('Exportar partición train/test', [
@@ -1649,14 +1701,19 @@ btnExportar.onClick(function () {
   var creadas = [], omitidas = [];
   var todos = todosAñosCheck.getValue() === true;
   var añosExp = todos ? AÑOS_DISP.slice() : cfg.años;
+  var rel;
+  try { rel = leerRelleno(); } catch (err) { estadoExport.setValue('Error: ' + err.message); estadoExport.style().set('color', '#B71C1C'); return; }
   // Con consenso temporal, el promedio de P(pino) se hace sobre los años que se exportan
   var añosCfgOrig = cfg.años;
   if (todos) cfg.años = añosExp;
   añosExp.forEach(function (y) {
     var nombre = 'silvo_e' + cfg.eco + '_' + y + '_' + ver;
     if (existe(carpeta + '/' + nombre)) { omitidas.push(nombre); return; }
+    var imagen = rel.on ? imagenExportRellena(MODELO, cfg.eco, y, probCheck.getValue() === true, rel.maxD, rel.prior)
+                        : imagenExport(MODELO, cfg.eco, y, probCheck.getValue() === true);
     Export.image.toAsset({
-      image: imagenExport(MODELO, cfg.eco, y, probCheck.getValue() === true).set({
+      image: imagen.set({
+        relleno: rel.on ? 1 : 0, relleno_max_dist: rel.maxD, relleno_prioridad: rel.on ? rel.prior : '',
         year: y, eco: cfg.eco, ecos_ent: cfg.ecosEnt.join(','), periodo: cfg.dividir ? '1996-2012 | 2013-2026 (modelo por año)' : cfg.ini + '-' + cfg.fin,
         arboles: cfg.arboles, version: ver, modo: cfg.modo, fondo_ver: cfg.verEnt,
         transferido: cfg.ecosEnt.indexOf(cfg.eco) < 0 ? 1 : 0,
@@ -1666,7 +1723,7 @@ btnExportar.onClick(function () {
       }),
       description: nombre, assetId: carpeta + '/' + nombre,
       region: region, scale: ESCALA, maxPixels: 1e13,
-      pyramidingPolicy: {'.default': 'mean', 'silvicultura': 'mode'}
+      pyramidingPolicy: {'.default': 'mean', 'silvicultura': 'mode', 'año_origen': 'mode'}
     });
     creadas.push(nombre);
   });
@@ -1674,6 +1731,7 @@ btnExportar.onClick(function () {
   estadoExport.setValue('Tareas creadas (' + creadas.length + '): ' + (creadas.join(', ') || '—') +
     (omitidas.length ? '\nYa existen (omitidas): ' + omitidas.join(', ') : '') +
     (todos && cfg.consenso ? '\nAviso: con consenso temporal y todos los años, cada tarea promedia 31 años (más pesada).' : '') +
+    (rel.on ? '\nRelleno de vacíos: hasta ' + rel.maxD + ' año(s), prioridad ' + rel.prior + '. Cada tarea clasifica hasta ' + (2 * rel.maxD + 1) + ' años (más pesada).' : '') +
     '\nLánzalas en la pestaña Tasks.');
   estadoExport.style().set('color', creadas.length ? '#2E7D32' : '#B71C1C');
 });
@@ -1706,6 +1764,10 @@ function difParametros(props, cfg) {
   cmp('árboles', props.arboles, cfg.arboles);
   cmp('radio', props.radio, cfg.radio);
   cmp('área mín.', props.area_min_px, cfg.areaMin);
+  try {
+    var rl = leerRelleno();
+    cmp('relleno (años)', (props.relleno_max_dist === undefined || props.relleno_max_dist === null) ? 0 : props.relleno_max_dist, rl.maxD);   // assets sin la propiedad = sin relleno
+  } catch (e) { /* distancia inválida: se ignora la comparación */ }
   cmp('buffer (km)', (props.buffer_km === undefined || props.buffer_km === null) ? 0 : props.buffer_km, cfg.bufferKm);   // assets sin la propiedad = sin buffer
   cmp('umbral dentro', props.umbral_dentro, cfg.umbralDentro);
   cmp('umbral fuera', props.umbral_fuera, cfg.umbralFuera);
