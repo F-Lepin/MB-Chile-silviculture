@@ -16,6 +16,10 @@ El selector de fuente permite elegir:
 
 Se elige primero años, luego región, versión y escala. Cada combinación calculada queda guardada, así que volver a una ya hecha es instantáneo. Usa 90 m para explorar y 30 m para cifras finales.
 
+## Clasificaciones con buffer
+
+Si las clasificaciones exportadas incluyen la franja de 5 km, las ecorregiones vecinas se solapan. `revisar_silvicultura_regiones` recorta cada imagen a **su** ecorregión (raster de ecorregiones) antes de unirlas, así que las cifras por región no cuentan la franja dos veces ni toman la clasificación de la ecorregión equivocada. `revisar_clasificaciones` ya mostraba solo la ecorregión elegida.
+
 ## Pruebas
 
 `tests/revision/` cubre el selector de fuente, la lectura de nombres de assets y la regla de bandas `b1…bN`.

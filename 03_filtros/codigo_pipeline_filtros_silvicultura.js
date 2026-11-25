@@ -432,7 +432,14 @@ var ETAPAS = [
 
 var ESTADO = {eco: null, ver: null, año: AÑO_VISTA_INICIAL, etapa: 'c5', roi: null, pipe: null, punto: null, ocupado: false, sucio: false};
 
-function regionEco() { return ee.FeatureCollection(CARPETA_ECO_VECTOR + '/E' + ESTADO.eco).geometry().bounds(); }
+// Las clasificaciones de entrada pueden traer una franja (buffer) alrededor de la ecorregión (clasificador con buffer). La región de
+// trabajo y de exportación la incluye, para que los filtros espaciales y temporales no corten parches en el límite. Si las entradas no
+// traen franja no pasa nada: lo que sobra queda sin dato. 0 = solo el rectángulo de la ecorregión.
+var BUFFER_KM = 5;
+function regionEco() {
+  var b = ee.FeatureCollection(CARPETA_ECO_VECTOR + '/E' + ESTADO.eco).geometry().bounds();
+  return BUFFER_KM > 0 ? b.buffer(BUFFER_KM * 1000).bounds() : b;
+}
 function regionTrabajo() { return ESTADO.roi || regionEco(); }
 
 // ---- widgets
@@ -737,7 +744,7 @@ btnExportar.onClick(function () {
   try {
     Export.image.toAsset({
       image: p.imagen.set({
-        eco: p.eco, version: sal, version_entrada: p.ver, año_ini: AÑO_INI, año_fin: AÑO_FIN,
+        eco: p.eco, version: sal, version_entrada: p.ver, buffer_km: BUFFER_KM, año_ini: AÑO_INI, año_fin: AÑO_FIN,
         s1: p.on.s1 ? 1 : 0, s2: p.on.s2 && p.fuegoOk ? 1 : 0, s3: p.on.s3 ? 1 : 0, s4: p.on.s4 ? 1 : 0, s5: p.on.s5 ? 1 : 0,
         relleno_max: p.P.rellenoMaxAños, fuego_desfase: p.P.fuegoDesfase, fuego_atras_max: p.P.fuegoAtrasMax,
         area_min_px: p.P.areaMinPx, corte_otras: p.P.corteOtras, ventana_post: p.P.ventanaPost, ultimo_año_confiable: p.P.ultimoAñoConfiable,

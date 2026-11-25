@@ -17,6 +17,17 @@ Random Forest multianual sobre el mosaico Landsat trimestral (49 variables por p
 - **Especie:** RF aparte pino vs eucalipto, con P(pino) suavizada y corte en 0,5.
 - **Área mínima** sobre pino y eucalipto; un modelo por periodo de sensor (1996–2012 y 2013–2026).
 
+## Buffer alrededor de la ecorregión
+
+Campo **Buffer alrededor de la ecorregión (km, 0 = no)** en el panel Muestreo; por defecto **5 km**.
+
+- Clasifica y exporta la ecorregión **más** la franja de ese ancho, con el modelo de la propia ecorregión.
+- La franja = buffer geodésico del vector `E{n}` (error máx. 100 m) sumado a los píxeles de la ecorregión en el raster. La región de exportación es el rectángulo de la ecorregión ampliado en esa distancia.
+- Con 0 km el comportamiento es el de antes. Para replicar versiones ya exportadas sin buffer, usa 0.
+- El asset guarda `buffer_km`. "Agregar probabilidades a una versión ya exportada" avisa si el buffer actual difiere del del asset (los assets antiguos cuentan como 0 km).
+- Mapa: capa **Límite buffer** para ver la franja. Las ecorregiones vecinas se solapan en la franja.
+- Con buffer el cálculo es más pesado; para explorar rápido usa 0 y deja el buffer para exportar.
+
 ## Salida
 
 `CLASSIFICATIONS/PRELIMINAR/SILVICULTURA/silvo_e{eco}_{año}_{versión}`, con las bandas `silvicultura` (1 pino, 2 eucalipto, 3 otras, 4 cosechado), `p_pino`, `p_euca`, `p_cosechado`, `p_otras` y `probabilidad`.

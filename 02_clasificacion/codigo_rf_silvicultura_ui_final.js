@@ -15,6 +15,11 @@
 //       fuera de COL2  → plantación solo si P ≥ umbral fuera (alto: el modelo debe estar muy seguro)
 //   · ESPECIE (pino/euca) la decide un RF aparte pino vs eucalipto, con P(pino) suavizada (radio px) y corte en 0.5.
 //   · Filtro de área mínima (px) sobre pino y eucalipto; un modelo por periodo de sensor (AUTO).
+//   · BUFFER (km, por defecto 5): clasifica y exporta la ecorregión MÁS una franja alrededor de ella, aplicando el mismo
+//     modelo de la ecorregión. Así los filtros espaciales (área mínima, suavizado de especie) no cortan los parches que cruzan
+//     el límite y se evita la costura entre ecorregiones. La franja se arma con el vector E{n} (buffer geodésico) y se suma a los
+//     píxeles del raster de ecorregiones. 0 = sin buffer (comportamiento anterior). Las ecorregiones vecinas se SOLAPAN en la franja:
+//     al contar áreas o integrar hay que recortar cada ecorregión a su propio límite (raster de ecorregiones, eq(eco)).
 //
 // Al leer las tablas se reconstruye:
 //   - yr y eco desde el nombre sample_{silvo|base}_e{eco}_{año}_v{n} (última versión)
@@ -46,6 +51,7 @@ Map.setOptions('HYBRID');
 // ------------------------------------------------------------------------------------------
 var DEF = {
   eco: 8,
+  bufferKm: 5,                     // franja alrededor de la ecorregión que también se clasifica y exporta (0 = no)
   ecosEnt: '8',
   periodo: 'AUTO',
   años: [2017],
@@ -146,6 +152,14 @@ function azarDesdeId(n) {
 function parseEntero(txt, nombre, min) {
   var n = parseInt(String(txt).trim(), 10);
   if (isNaN(n) || n < (min || 0)) throw new Error(nombre + ': valor inválido.');
+  return n;
+}
+
+// Distancia en km (0 permitido, máx. 50)
+function parseKm(txt, nombre) {
+  var t = String(txt).trim().replace(',', '.');
+  var n = Number(t);
+  if (t === '' || !isFinite(n) || n < 0 || n > 50) throw new Error(nombre + ': debe estar entre 0 y 50 km.');
   return n;
 }
 
@@ -536,6 +550,7 @@ function construirModelo(cfg) {
   var detalle = ' · E' + cfg.ecosEnt.join(',E') + ' · modo ' + cfg.modo +
     (cfg.modo === 'ESPECIE' ? ' · suavizado ' + cfg.radio + ' px' + (cfg.consenso ? ' · consenso temporal' : '') : '') +
     (cfg.areaMin > 1 ? ' · área mín. ' + cfg.areaMin + ' px' : '') +
+    (cfg.bufferKm > 0 ? ' · buffer ' + cfg.bufferKm + ' km' : '') +
     (cfg.guiaCol2 && cfg.modo === 'ESPECIE' ? ' · guía COL2 (' + cfg.umbralDentro + ' / ' + cfg.umbralFuera + ')' : '');
   var fondo = 'maestra ' + cfg.verEnt + (cfg.verEnt === VER_CON_AGRO ? ' (con agro)' : ' (sin agro)');
   if (!cfg.dividir) {
@@ -578,7 +593,7 @@ function guiaCol2(st, sub, cfg, y) {
 // Capas de diagnóstico de la guía (antes del filtro de área): qué agrega el modelo fuera de COL2 y qué descarta dentro
 function guiaAño(m, eco, y) {
   var sub = parteDe(m, y);
-  var mask = ee.Image(ASSET_ECO_RASTER).select(0).eq(eco).selfMask();
+  var mask = mascaraEco(eco, m.cfg.bufferKm);
   return guiaCol2(stackAño(y).updateMask(mask), sub, m.cfg, y);
 }
 
@@ -586,7 +601,7 @@ function guiaAño(m, eco, y) {
 // Suavizado: promedio en una ventana cuadrada de lado 2·radio+1 píxeles, solo con píxeles de plantación.
 function capasAño(m, eco, y) {
   var sub = parteDe(m, y);
-  var mask = ee.Image(ASSET_ECO_RASTER).select(0).eq(eco).selfMask();
+  var mask = mascaraEco(eco, m.cfg.bufferKm);
   var st = stackAño(y).updateMask(mask);
   var base = st.classify(sub.rf).toByte();
   if (!sub.rfEspecie) return {base: base, p: null, plant: null};
@@ -651,7 +666,7 @@ function clasificarAñoSinFiltro(m, eco, y) {
 function bandasProbAño(m, eco, y, clase) {
   var sub = parteDe(m, y);
   if (!sub.rfEspecie || !sub.rfProb) return null;
-  var mask = ee.Image(ASSET_ECO_RASTER).select(0).eq(eco).selfMask();
+  var mask = mascaraEco(eco, m.cfg.bufferKm);
   var st = stackAño(y).updateMask(mask);
   var pr = st.classify(sub.rfProb);                       // arreglo [P(plantación), P(otras), P(cosechado)]
   var pPlant = pr.arrayGet([0]), pOtras = pr.arrayGet([1]), pCos = pr.arrayGet([2]);
@@ -681,8 +696,25 @@ function imagenExport(m, eco, y, conProb) {
   return pb ? clase.addBands(pb) : clase;
 }
 
-function regionEco(eco) {
-  return ee.FeatureCollection(CARPETA_ECO_VECTOR + '/E' + eco).geometry().bounds();
+// Geometría de la ecorregión (vector E{n}); con bufferKm > 0 se le suma una franja geodésica de esa distancia.
+function geomEco(eco, bufferKm) {
+  var g = ee.FeatureCollection(CARPETA_ECO_VECTOR + '/E' + eco).geometry();
+  return bufferKm > 0 ? g.buffer(bufferKm * 1000, 100) : g;
+}
+
+// Máscara de trabajo: píxeles de la ecorregión (raster) + la franja de bufferKm alrededor (vector con buffer).
+// Sin buffer es exactamente la máscara anterior: raster de ecorregiones eq(eco).
+function mascaraEco(eco, bufferKm) {
+  var propia = ee.Image(ASSET_ECO_RASTER).select(0).eq(eco);
+  if (!(bufferKm > 0)) return propia.selfMask();
+  var franja = ee.Image(0).byte().paint(ee.FeatureCollection([ee.Feature(geomEco(eco, bufferKm))]), 1);
+  return propia.unmask(0).or(franja).selfMask();
+}
+
+// Región de exportación: rectángulo que envuelve la ecorregión, ampliado en bufferKm.
+function regionEco(eco, bufferKm) {
+  var b = ee.FeatureCollection(CARPETA_ECO_VECTOR + '/E' + eco).geometry().bounds();
+  return bufferKm > 0 ? b.buffer(bufferKm * 1000).bounds() : b;
 }
 
 // ==========================================================================================
@@ -904,6 +936,7 @@ var modeloSelect = ui.Select({
 });
 var cRadio = filaCampo('Suavizado de especie (radio px, 0 = no)', 3);
 var cAreaMin = filaCampo('Área mínima de parche pino/euca (px, 0 = no)', 22);
+var cBuffer = filaCampo('Buffer alrededor de la ecorregión (km, 0 = no)', DEF.bufferKm);
 var guiaCol2Check = ui.Checkbox({label: 'Guía COL2 para plantación (solo modo máscara + especie)', value: true,
   style: {fontSize: '10px', margin: '2px 0 2px 0'}});
 var cUmbralDentro = filaCampo('Guía COL2 · P mínima dentro de COL2 (0–1)', 0.4);
@@ -931,10 +964,11 @@ var btnExportarTablaEnt = ui.Button({label: 'Exportar tablas faltantes (v1 y v2)
 var panelTabMuestreo = ui.Panel({style: {stretch: 'horizontal', margin: '0', padding: '0'}});
 panelTabMuestreo.add(crearSeccion('Puntos y test (se aplican al entrenar)', [
   ui.Label('Tipo de modelo', {fontSize: '10px', fontWeight: 'bold', margin: '0 0 2px 0'}), modeloSelect,
-  cRadio.fila, consensoCheck, cAreaMin.fila, guiaCol2Check, cUmbralDentro.fila, cUmbralFuera.fila,
+  cRadio.fila, consensoCheck, cAreaMin.fila, cBuffer.fila, guiaCol2Check, cUmbralDentro.fila, cUmbralFuera.fila,
   ui.Label('Muestras de fondo', {fontSize: '10px', fontWeight: 'bold', margin: '0 0 2px 0'}), verSelect,
   cPino.fila, cEuca.fila, cOtras.fila, cAgro.fila, cCosecha.fila, cTest.fila, cArb.fila,
   nota('Puedes cambiarlos cuando quieras: solo presiona Aplicar parámetros. No requieren exportar nada.\n' +
+       'Buffer: clasifica y exporta también una franja de ese ancho alrededor de la ecorregión (con el modelo de esta ecorregión). Las ecorregiones vecinas se solapan en la franja; 0 = solo la ecorregión. Con buffer los cálculos son más pesados: usa 0 para explorar rápido.\n' +
        'Modo máscara + especie: entrena un modelo aparte solo con pino vs eucalipto y lo aplica donde la máscara dice plantación.\n' +
        'Test ≈ fracción test / (1 − fracción test) de los puntos de train. Si una clase tiene menos puntos disponibles, se usan todos.')
 ]));
@@ -1268,6 +1302,7 @@ function leerConfig() {
     dividir: periodoSelect.getValue() === 'AUTO',   // AUTO: un modelo por periodo de sensor; cada año usa el de su periodo
     radio: parseEntero(cRadio.box.getValue(), 'Suavizado', 0),
     areaMin: Math.min(256, parseEntero(cAreaMin.box.getValue(), 'Área mínima', 0)),
+    bufferKm: parseKm(cBuffer.box.getValue(), 'Buffer'),
     guiaCol2: guiaCol2Check.getValue() === true,
     umbralDentro: parseFraccion(cUmbralDentro.box.getValue(), 'P mínima dentro de COL2'),
     umbralFuera: parseFraccion(cUmbralFuera.box.getValue(), 'P mínima fuera de COL2'),
@@ -1502,8 +1537,8 @@ function ejecutar() {
     capasExportadas = [];
     capaPunto = null;
 
-    var mask = ee.Image(ASSET_ECO_RASTER).select(0).eq(cfg.eco).selfMask();
-    var region = regionEco(cfg.eco);
+    var mask = mascaraEco(cfg.eco, cfg.bufferKm);
+    var region = regionEco(cfg.eco, cfg.bufferKm);
     Map.centerObject(region, 9);
 
     cfg.años.forEach(function (y, i) {
@@ -1533,6 +1568,10 @@ function ejecutar() {
     });
     Map.addLayer(ee.Image().byte().paint(ee.FeatureCollection(CARPETA_ECO_VECTOR + '/E' + cfg.eco), 1, 2),
       {palette: ['FFFF00']}, 'Límite E' + cfg.eco, false);
+    if (cfg.bufferKm > 0) {
+      Map.addLayer(ee.Image().byte().paint(ee.FeatureCollection([ee.Feature(geomEco(cfg.eco, cfg.bufferKm))]), 1, 2),
+        {palette: ['00E5FF']}, 'Límite buffer ' + cfg.bufferKm + ' km', false);
+    }
 
     mostrarMetricas(modelo);
     statusLabel.setValue('Modelo e' + cfg.ecosEnt.join(',') + ' · ' + (cfg.dividir ? 'por periodo' : cfg.ini + '–' + cfg.fin) +
@@ -1558,7 +1597,7 @@ btnExportar.onClick(function () {
   var cfg = MODELO.cfg;
   var carpeta = carpetaBox.getValue().replace(/\/+$/, '');
   var ver = String(versionBox.getValue()).trim() || 'v1';
-  var region = regionEco(cfg.eco);
+  var region = regionEco(cfg.eco, cfg.bufferKm);
   var creadas = [], omitidas = [];
   var todos = todosAñosCheck.getValue() === true;
   var añosExp = todos ? AÑOS_DISP.slice() : cfg.años;
@@ -1573,7 +1612,7 @@ btnExportar.onClick(function () {
         year: y, eco: cfg.eco, ecos_ent: cfg.ecosEnt.join(','), periodo: cfg.dividir ? '1996-2012 | 2013-2026 (modelo por año)' : cfg.ini + '-' + cfg.fin,
         arboles: cfg.arboles, version: ver, modo: cfg.modo, fondo_ver: cfg.verEnt,
         transferido: cfg.ecosEnt.indexOf(cfg.eco) < 0 ? 1 : 0,
-        dividir: cfg.dividir ? 1 : 0, radio: cfg.radio, consenso: cfg.consenso ? 1 : 0, area_min_px: cfg.areaMin,
+        dividir: cfg.dividir ? 1 : 0, radio: cfg.radio, consenso: cfg.consenso ? 1 : 0, area_min_px: cfg.areaMin, buffer_km: cfg.bufferKm,
         cosechado: 1, guia_col2: (cfg.guiaCol2 && cfg.modo === 'ESPECIE') ? 1 : 0, umbral_dentro: cfg.umbralDentro, umbral_fuera: cfg.umbralFuera,
         con_probabilidad: (probCheck.getValue() === true && cfg.modo === 'ESPECIE') ? 1 : 0
       }),
@@ -1599,6 +1638,7 @@ function difParametros(props, cfg) {
   cmp('árboles', props.arboles, cfg.arboles);
   cmp('radio', props.radio, cfg.radio);
   cmp('área mín.', props.area_min_px, cfg.areaMin);
+  cmp('buffer (km)', (props.buffer_km === undefined || props.buffer_km === null) ? 0 : props.buffer_km, cfg.bufferKm);   // assets sin la propiedad = sin buffer
   cmp('umbral dentro', props.umbral_dentro, cfg.umbralDentro);
   cmp('umbral fuera', props.umbral_fuera, cfg.umbralFuera);
   cmp('consenso', props.consenso, cfg.consenso ? 1 : 0);
@@ -1644,7 +1684,7 @@ btnVerificar.onClick(function () {
     viva.lte(2).updateMask(orig3).rename('otras_a_silvo'),
     viva.eq(4).updateMask(orig3).rename('otras_a_cosechado')
   ]);
-  bandas.reduceRegion({reducer: ee.Reducer.mean(), geometry: regionEco(cfg.eco), scale: 240, maxPixels: 1e10, tileScale: 4})
+  bandas.reduceRegion({reducer: ee.Reducer.mean(), geometry: regionEco(cfg.eco, cfg.bufferKm), scale: 240, maxPixels: 1e10, tileScale: 4})
     .evaluate(function (r, err) {
       if (err || !r) { estadoProb.setValue('Falló la verificación: ' + String(err || 'sin resultado').slice(0, 150)); estadoProb.style().set('color', '#B71C1C'); return; }
       var f = function (v) { return (v === null || v === undefined) ? 'n/d' : (v * 100).toFixed(1) + '%'; };
@@ -1667,7 +1707,7 @@ btnAgregarProb.onClick(function () {
   var ver = String(verOrigenBox.getValue()).trim();
   var suf = String(sufijoProbBox.getValue()).trim();
   if (!ver || !suf) { estadoProb.setValue('Indica la versión de origen y un sufijo para el asset nuevo.'); estadoProb.style().set('color', '#B71C1C'); return; }
-  var region = regionEco(cfg.eco);
+  var region = regionEco(cfg.eco, cfg.bufferKm);
   var todos = todosAñosCheck.getValue() === true;
   var añosExp = añosProb(cfg);
   var añosCfgOrig = cfg.años;
@@ -1686,7 +1726,7 @@ btnAgregarProb.onClick(function () {
       image: clase.addBands(pb).set({
         year: y, eco: cfg.eco, ecos_ent: cfg.ecosEnt.join(','), version: ver + suf, version_origen: ver,
         con_probabilidad: 1, prob_modelo_reentrenado: 1, arboles: cfg.arboles, radio: cfg.radio, consenso: cfg.consenso ? 1 : 0,
-        area_min_px: cfg.areaMin, dividir: cfg.dividir ? 1 : 0, cosechado: 1, guia_col2: cfg.guiaCol2 ? 1 : 0,
+        area_min_px: cfg.areaMin, buffer_km: cfg.bufferKm, dividir: cfg.dividir ? 1 : 0, cosechado: 1, guia_col2: cfg.guiaCol2 ? 1 : 0,
         umbral_dentro: cfg.umbralDentro, umbral_fuera: cfg.umbralFuera
       }),
       description: nombre, assetId: carpeta + '/' + nombre,

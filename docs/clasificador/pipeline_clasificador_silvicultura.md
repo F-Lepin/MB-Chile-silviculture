@@ -88,6 +88,8 @@ Se aplica a cada píxel, con el modelo del periodo que corresponde al año.
 
 Un asset por ecorregión y año, con nombre **silvo_e{ecorregión}\_{año}\_{versión}**, en la carpeta de clasificaciones preliminares de silvicultura. Se exporta a 30 m, sobre la ecorregión, y los años que ya existen se omiten. Se puede exportar cualquier año sin tenerlo cargado en el mapa.
 
+**Buffer.** Desde la versión con buffer, el clasificador clasifica y exporta además de la ecorregión una franja de **5 km** a su alrededor (parámetro editable en el panel Muestreo; 0 = sin franja). Se usa el modelo de la propia ecorregión. Así los filtros espaciales no cortan los parches que cruzan el límite y se evita la costura entre ecorregiones. La franja se arma con un buffer del vector de la ecorregión sumado a los píxeles del raster de ecorregiones. Las ecorregiones vecinas **se solapan** en la franja, por lo que al contar áreas o integrar hay que recortar cada asset a su propia ecorregión. El asset guarda la propiedad `buffer_km`.
+
 | Banda              | Contenido                                           |
 |------------------------|---------------------------------------------------------|
 | silvicultura (banda 0) | Clase: 1 pino, 2 eucalipto, 3 otras, 4 cosechado        |
@@ -134,5 +136,6 @@ Parámetros con que se clasificó la ecorregión 8, tal como están en el panel 
 |               | Consenso temporal de especie           | Activado. Promedia P(pino) entre los años seleccionados al exportar, así que para replicar hay que usar la misma selección de años |
 |               | Área mínima de parche pino y eucalipto | 22 px                                                                                                                              |
 |               | Guía COL2 para plantación              | Activada. P mínima dentro de COL2: 0,5. P mínima fuera de COL2: 0,85                                                               |
+|               | Buffer alrededor de la ecorregión      | 0 km para replicar versiones exportadas antes del buffer; 5 km por defecto en las nuevas                                           |
 
 Estos parámetros quedan fijos en el código y no se cambian desde el panel: semilla 42, hoja mínima de 2 muestras, 50 % de muestras por árbol y, para el cosechado, el año siguiente al año de cosecha registrado.

@@ -48,13 +48,14 @@ archivo/                     versiones anteriores de scripts, solo referencia
 
 ```bash
 node scripts/check_syntax.js   # sintaxis de todos los .js
-node scripts/run_tests.js      # 7 tests con simulaciones
+node scripts/run_tests.js      # 8 tests con simulaciones
 ```
 
 Los tests usan **simulaciones** de la API de Earth Engine y de los widgets: comprueban la lógica de los scripts, pero no sus resultados sobre los assets reales. Ningún script de este repo se ha validado automáticamente contra GEE; la prueba real es correrlo en el Code Editor.
 
 ## Pendientes conocidos
 
+- **Buffer de 5 km:** el clasificador (y la región de trabajo de los filtros) incluye una franja alrededor de cada ecorregión. Las ecorregiones vecinas se solapan en esa franja. Al contar áreas o integrar hay que recortar cada una a su propia ecorregión (`ECO_RASTER.eq(eco)`); `revisar_silvicultura_regiones` ya lo hace. Aún no se ha probado con GEE real, y el cálculo del buffer puede ser más pesado en ecorregiones grandes.
 - Los visores de la etapa 4 leen `silvo_e{eco}_{año}_{ver}` (y la integración V1); todavía **no leen** el formato `silvo_filtrado_e{eco}_{ver}` que exporta el pipeline de la etapa 3.
 - Documento `docs/filtros/pipeline_filtros_silvicultura.docx`: falta incorporar las decisiones de arriba (11 px, 22 px, 2013–2025, código 83).
 - S4 no rellena años aislados de "otras" entre años de silvicultura sin cosecha; podría explicar parte de la caída de pino 2007–2011.

@@ -282,12 +282,19 @@ function imagenDeRef(ref, ver) {                           // clase de un asset 
   if (m) { var k = Object.keys(m).map(Number); im = im.remap(k, k.map(function (x) { return m[x]; }), 3); }
   return im.rename('clase');
 }
+// Cada imagen de una ecorregión se recorta a SUS píxeles (raster de ecorregiones) antes de unirlas: si el clasificador exportó
+// una franja (buffer) alrededor de la ecorregión, las ecorregiones vecinas se solapan y sin este recorte el mosaico tomaría
+// la clasificación de la ecorregión equivocada en la franja. Una imagen sin ecorregión en el nombre (se repite en todas) no se recorta.
 function mosaicoSimple(ver, y) {
-  var vistos = {}, imgs = [];
+  var vistos = {}, usos = {}, imgs = [];
+  var clave = function (ref) { return typeof ref === 'string' ? ref : ref.id + '|' + ref.banda; };
+  ecosDelAño(ver, y).forEach(function (e) { var k = clave(CAT[e][ver][y]); usos[k] = (usos[k] || 0) + 1; });
   ecosDelAño(ver, y).forEach(function (e) {
-    var ref = CAT[e][ver][y], k = typeof ref === 'string' ? ref : ref.id + '|' + ref.banda;
+    var ref = CAT[e][ver][y], k = clave(ref);
     if (vistos[k]) return;                                 // una imagen sin ecorregión en el nombre se repite en todas
-    vistos[k] = true; imgs.push(imagenDeRef(ref, ver));
+    vistos[k] = true;
+    var im = imagenDeRef(ref, ver);
+    imgs.push(usos[k] === 1 ? im.updateMask(ECO_RASTER.eq(e)) : im);
   });
   return imgs.length ? ee.ImageCollection(imgs).mosaic() : null;
 }

@@ -26,4 +26,6 @@ Toma las clasificaciones preliminares ya exportadas y aplica, por ecorregión y 
 - `final_{año}`: códigos 79/80/83 (otras queda sin dato, para integrar sobre la clasificación general).
 - `paso_{año}`: pasos que cambiaron el píxel, en bits (1 = S1, 2 = S2, 4 = S3, 8 = S4, 16 = S5; 0 = no cambió).
 
+La región de trabajo y de exportación se amplía en `BUFFER_KM` (5 km) respecto del rectángulo de la ecorregión, para conservar la franja de las clasificaciones con buffer; los filtros S3, S4 y S5 la procesan completa. Si las entradas no traen franja, lo que sobra queda sin dato. El asset guarda `buffer_km`.
+
 Este nombre no coincide con el patrón `silvo_e{eco}_{año}_{ver}`, así que los visores de la etapa 4 aún no lo leen.

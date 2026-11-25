@@ -22,6 +22,7 @@ var VERSION_SALIDA = 'v3_rell';       // versión de salida (con huecos rellenad
 var MAX_DISTANCIA = 3;                // años máximos de distancia para rellenar
 var PRIORIDAD = 'ANTERIOR';           // 'ANTERIOR' o 'SIGUIENTE' (a igual distancia)
 var CARPETA_SALIDA = 'projects/mapbiomas-chile/assets/LULC/COLLECTION-03/CLASSIFICATIONS/PRELIMINAR/SILVICULTURA';
+var BUFFER_KM = 5;   // franja que trae la clasificación de entrada alrededor de la ecorregión (0 = ninguna)
 var CARPETA_ECO_VECTOR = 'projects/mapbiomas-chile/assets/LULC/COLLECTION-03/ANCILLARY_DATA/ECORREGIONES';
 
 function listarCarpeta(parent) {
@@ -83,7 +84,7 @@ ECOS.forEach(function (eco) {
   var ids = ID[eco] && ID[eco][VERSION_ENTRADA];
   if (!ids) { print('E' + eco + ': no hay clasificaciones exportadas de la versión ' + VERSION_ENTRADA + ' (omitida)'); return; }
   var años = Object.keys(ids).map(Number).sort(function (a, b) { return a - b; });
-  var region = ee.FeatureCollection(CARPETA_ECO_VECTOR + '/E' + eco).geometry().bounds();
+  var region = ee.FeatureCollection(CARPETA_ECO_VECTOR + '/E' + eco).geometry().bounds().buffer(BUFFER_KM * 1000).bounds();   // incluye la franja de la clasificación con buffer
   var creadas = [], omitidas = [];
   años.forEach(function (y) {
     var nombre = 'silvo_e' + eco + '_' + y + '_' + VERSION_SALIDA;

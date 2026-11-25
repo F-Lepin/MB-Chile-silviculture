@@ -7,4 +7,6 @@
 | `decisiones/` | Respuestas a los pendientes del equipo: pregunta, explicación y respuesta. |
 | `prompts/` | Especificaciones de apoyo: exportación de muestras y análisis de separabilidad pino/eucalipto. |
 
+El md del clasificador ya describe el buffer de 5 km; sus `.docx` y `.pdf` no se regeneraron y aún no lo incluyen.
+
 Para regenerar un docx: `npm install docx` y, dentro de la carpeta, `node build.js`.
