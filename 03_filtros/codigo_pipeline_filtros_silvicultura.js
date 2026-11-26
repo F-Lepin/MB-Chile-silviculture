@@ -60,6 +60,7 @@ var PARAM = {
   corteOtras: 5,                            // S4  años consecutivos de "otras" que cortan un tramo
   ventanaPost: 5,                           // S4  años posteriores a una cosecha para decidir si vuelve la silvicultura
   ultimoAñoConfiable: 2025,                 // S4  2026 no cuenta como dato
+  duracionMinima: 3,                        // S4  una plantación nueva que dura menos años (con «otras» a ambos lados, sin cosecha) se borra (0 = apagado)
   cosechaImplicita: 2,                      // S4  años seguidos de «otras» tras silvicultura que implican una cosecha no detectada (0 = apagado)
   maxTramos: 6,                             // S4  tramos máximos por píxel (si hay más, se unen al último)
   especieMinPx: 22                          // S5  ≈ 2 ha a 30 m (a calibrar)
@@ -131,6 +132,39 @@ function s2Fuego(cs, años, desfase, atrasMax) {
   return {cs: out, corr: corr};
 }
 
+// S4 · Paso previo «duración mínima» (S9): una plantación nueva que aparece pocos años y desaparece sin cosecha es un falso positivo.
+//   Una racha de pino/euca de menos de M = P.duracionMinima años, con «otras» el año anterior y el siguiente (no cosecha), vuelve a «otras».
+//   No se borra: (a) un replante, es decir, si antes hubo silvicultura o cosecha y entre ella y la racha hay menos de ventanaPost años de
+//   «otras»; (b) una racha que empieza en el primer año de la serie (ya existía); (c) una racha que termina en 2024 o después
+//   (ultimoAñoConfiable − 1: aún no se puede juzgar si sigue). Se recorre en orden: una racha borrada ya no cuenta como plantación previa.
+//   Con 0 el paso queda apagado.
+function s4DuracionMinima(c, años, P) {
+  var M = P.duracionMinima || 0;
+  if (M < 2) return c;
+  var n = c.length, ULT = P.ultimoAñoConfiable, W = P.ventanaPost, k, j, L;
+  var u = c.map(function (x) { return x.unmask(0); });
+  var out = c.slice();
+  var ultimo = ee.Image(0), gO = ee.Image(0);        // última clase 1/2/4 vista y años de «otras» desde entonces
+  for (k = 0; k < n; k++) {
+    if (k >= 1) {
+      for (L = 1; L <= M - 1 && k + L < n; L++) {
+        if (años[k + L - 1] > ULT - 2) continue;
+        var cond = u[k - 1].eq(3).and(u[k + L].eq(3));
+        for (j = 0; j < L; j++) cond = cond.and(u[k + j].eq(1).or(u[k + j].eq(2)));
+        cond = cond.and(ultimo.gt(0).and(gO.lt(W)).not());
+        for (j = 0; j < L; j++) {
+          u[k + j] = u[k + j].where(cond, ee.Image(3));
+          out[k + j] = out[k + j].where(cond, ee.Image(3));
+        }
+      }
+    }
+    var cl = u[k], hay = cl.eq(1).or(cl.eq(2)).or(cl.eq(4));
+    ultimo = ultimo.where(hay, cl);
+    gO = gO.where(cl.eq(3), gO.add(1)).where(hay, 0);
+  }
+  return out;
+}
+
 // S4 · Paso previo «cosecha implícita»: una plantación no pasa a «otras» sin una cosecha en medio.
 //   Un año de «otras» justo después de un año de silvicultura se marca como cosechado (cosecha que el clasificador no vio).
 //   Excepciones, con N = P.cosechaImplicita (0 = apagado):
@@ -139,9 +173,12 @@ function s2Fuego(cs, años, desfase, atrasMax) {
 //     cuando el clasificador solo parpadea.
 //   · Los años posteriores al último año confiable no cuentan como dato: continúan con la clase del año anterior.
 //   Se mira solo la clase original (antes de modificar nada) y se asume una serie de años consecutivos.
+//   Devuelve {c: serie nueva, imp: años marcados como cosecha implícita}. Esa cosecha NO cuenta como corte para cambiar de especie
+//   (S2): para eso hace falta una cosecha detectada, un incendio (S10) o «otras» durante corteOtras años o más.
 function s4CosechaImplicita(c, años, P) {
   var N = P.cosechaImplicita || 0;
-  if (N < 1) return c;
+  var imp = c.map(function () { return ee.Image(0); });
+  if (N < 1) return {c: c, imp: imp};
   var n = c.length, ULT = P.ultimoAñoConfiable, k, j, L;
   var u = c.map(function (x) { return x.unmask(0); });
   var S = u.map(function (x) { return x.eq(1).or(x.eq(2)); });
@@ -161,31 +198,45 @@ function s4CosechaImplicita(c, años, P) {
   for (k = 1; k < n; k++) {
     var cc = S[k - 1].and(O[k]).and(llena[k].not());
     out[k] = out[k].where(cc, años[k] <= ULT ? ee.Image(4) : u[k - 1]);
+    if (años[k] <= ULT) imp[k] = cc;
   }
-  return out;
+  return {c: out, imp: imp};
 }
 
 // S4 · Consistencia temporal por tramos.
 //   c[k]: clase del año k (1,2,3,4; enmascarado = sin dato)   vp[k], ve[k]: votos de pino y euca del año (0 si no vota)
-// 0) Paso previo (s4CosechaImplicita): silvicultura → «otras» sin cosecha en medio se interpreta como una cosecha no detectada.
-// 1) Tramos: años de silvicultura entre cortes. Cortan: un año de cosecha, o ≥ corteOtras años consecutivos de "otras".
+// 0) Pasos previos: (a) s4DuracionMinima borra las plantaciones nuevas más cortas que duracionMinima; (b) s4CosechaImplicita: silvicultura →
+//    «otras» sin cosecha en medio se interpreta como una cosecha no detectada.
+// 1) Tramos: años de silvicultura entre cortes. Cortan: un año de cosecha DETECTADA, el final de un incendio que S2 corrigió (corte[k], S10: los años quemados siguen siendo el tramo anterior y lo que viene después es un tramo nuevo),
+//    o ≥ corteOtras años consecutivos de "otras" (la cosecha implícita cuenta como «otras» para esto, no como cosecha).
 // 2) Una especie por tramo; solo se permite pino → euca, una vez, en un corte: se elige el punto de cambio que más concuerda
 //    con la suma de votos de cada tramo.
 // 3) Después de una cosecha (el primer año queda como cosechado): si en los siguientes ventanaPost años se detecta silvicultura,
 //    los años intermedios toman esa especie; si no y hay datos suficientes, el cosechado de continuación pasa a "otras"; si no hay
 //    datos suficientes (ultimoAñoConfiable − año de cosecha < ventanaPost) continúa la especie anterior a la cosecha.
-function s4Temporal(c, vp, ve, años, P) {
-  c = s4CosechaImplicita(c, años, P);
+function s4Temporal(c, vp, ve, años, P, corte) {
   var n = c.length, M = P.maxTramos, W = P.ventanaPost, ULT = P.ultimoAñoConfiable;
   var Z = ee.Image(0), j, k;
+  var antes = c;
+  c = s4DuracionMinima(c, años, P);
+  vp = vp.slice(); ve = ve.slice();
+  for (k = 0; k < n; k++) {                              // los años borrados no votan
+    var borrado = antes[k].unmask(0).neq(c[k].unmask(0));
+    vp[k] = vp[k].where(borrado, 0); ve[k] = ve[k].where(borrado, 0);
+  }
+  var ci = s4CosechaImplicita(c, años, P);
+  c = ci.c;
+  var imp = ci.imp, pCorte = Z;
   // --- pasada 1: tramos y votos por tramo
   var tr = Z, hasS = Z, hadC = Z, run = Z, largo = Z;
   var tid = [], isS = [], SP = [], SE = [];
   for (j = 0; j < M; j++) { SP.push(Z); SE.push(Z); }
   for (k = 0; k < n; k++) {
-    var ck = c[k].unmask(0);
+    var ck = c[k].unmask(0).where(imp[k], 3);            // cosecha implícita = «otras» para decidir cortes
     var s = ck.eq(1).or(ck.eq(2));
-    var nuevo = s.and(hasS).and(hadC.or(largo));
+    var cf = corte ? corte[k].unmask(0) : Z, cutNow = pCorte.and(cf.not());   // fin de un tramo de incendio corregido por S2
+    pCorte = cf;
+    var nuevo = s.and(hasS).and(hadC.or(largo).or(cutNow));
     tr = tr.add(nuevo);
     tr = tr.where(tr.gt(M - 1), M - 1);
     tid.push(tr); isS.push(s);
@@ -193,7 +244,7 @@ function s4Temporal(c, vp, ve, años, P) {
       var m = tr.eq(j);
       SP[j] = SP[j].add(vp[k].multiply(m)); SE[j] = SE[j].add(ve[k].multiply(m));
     }
-    hadC = hadC.or(ck.eq(4)).where(s, 0);
+    hadC = hadC.or(ck.eq(4)).or(cutNow).where(s, 0);
     run = Z.where(ck.eq(3), run.add(1)).where(ck.eq(0), run);
     largo = largo.or(run.gte(P.corteOtras)).where(s, 0);
     hasS = hasS.or(s);
@@ -412,7 +463,7 @@ function construirPipeline(eco, ver, P, on) {
       vp.push(a1[k].select('pp').unmask(0).multiply(vota));
       ve.push(a1[k].select('pe').unmask(0).multiply(vota));
     });
-    c4 = s4Temporal(c3, vp, ve, AÑOS, P);
+    c4 = s4Temporal(c3, vp, ve, AÑOS, P, corr2);
   }
 
   // S5 y S6
@@ -450,6 +501,7 @@ var DEF_PASOS = [
   {k: 's3', txt: 'S3 · Área mínima', p: [['areaMinPx', 'umbral (px de 30 m; filtro general = 11)', 1, 256]]},
   {k: 's4', txt: 'S4 · Consistencia temporal', p: [['corteOtras', 'años de «otras» que cortan un tramo', 1, 10], ['ventanaPost', 'ventana post-cosecha (años)', 1, 10],
     ['ultimoAñoConfiable', 'último año confiable', AÑO_INI, AÑO_FIN], ['maxTramos', 'tramos máx. por píxel', 1, 8],
+    ['duracionMinima', 'plantación nueva más corta que esto (años) se borra; 0 = no', 0, 6],
     ['cosechaImplicita', '«otras» tras silvicultura = cosecha (años seguidos; 0 = no)', 0, 5]]},
   {k: 's5', txt: 'S5 · Consistencia espacial de especie (umbral a calibrar)', p: [['especieMinPx', 'umbral (píxeles de 30 m)', 1, 256]]}
 ];
@@ -786,7 +838,7 @@ btnExportar.onClick(function () {
         s1: p.on.s1 ? 1 : 0, s2: p.on.s2 && p.fuegoOk ? 1 : 0, s3: p.on.s3 ? 1 : 0, s4: p.on.s4 ? 1 : 0, s5: p.on.s5 ? 1 : 0,
         relleno_max: p.P.rellenoMaxAños, fuego_desfase: p.P.fuegoDesfase, fuego_atras_max: p.P.fuegoAtrasMax,
         area_min_px: p.P.areaMinPx, corte_otras: p.P.corteOtras, ventana_post: p.P.ventanaPost, ultimo_año_confiable: p.P.ultimoAñoConfiable,
-        max_tramos: p.P.maxTramos, cosecha_implicita: p.P.cosechaImplicita, especie_min_px: p.P.especieMinPx
+        max_tramos: p.P.maxTramos, duracion_minima: p.P.duracionMinima, cosecha_implicita: p.P.cosechaImplicita, especie_min_px: p.P.especieMinPx
       }),
       description: nombre, assetId: id, region: regionTrabajo(), scale: ESCALA_EXPORT, maxPixels: 1e13,
       pyramidingPolicy: {'.default': 'mode'}

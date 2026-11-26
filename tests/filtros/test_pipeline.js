@@ -18,13 +18,14 @@ eval(nuc+';global.s4Temporal=s4Temporal;global.s2Fuego=s2Fuego;global.s1Relleno=
 
 const P0={maxTramos:6,ventanaPost:5,ultimoAñoConfiable:2025,corteOtras:5};
 // ---------- implementación de referencia (imperativa, por píxel) ----------
-function ref(c,vp,ve,años,P){
+function ref(c,vp,ve,años,P,imp,cut){
  const n=c.length,M=P.maxTramos,W=P.ventanaPost,ULT=P.ultimoAñoConfiable;
  const cc=c.map(x=>x===null?0:x), S=cc.map(x=>x===1||x===2);
  const sIdx=[]; cc.forEach((x,k)=>{if(S[k])sIdx.push(k)});
  const tid=Array(n).fill(0); let t=0;
- sIdx.forEach((k,i)=>{ if(i>0){ const gap=[]; for(let q=sIdx[i-1]+1;q<k;q++)gap.push(cc[q]);
-   const hasC=gap.includes(4); let run=0,maxRun=0; gap.forEach(x=>{ if(x===3){run++;maxRun=Math.max(maxRun,run);} else if(x!==0) run=0; });
+ sIdx.forEach((k,i)=>{ if(i>0){ const gap=[]; let cutHit=false; for(let q=sIdx[i-1]+1;q<k;q++)gap.push(imp&&imp[q]?3:cc[q]);
+   if(cut) for(let q=sIdx[i-1]+1;q<=k;q++) if(q>0&&cut[q-1]&&!cut[q]) cutHit=true;
+   const hasC=gap.includes(4)||cutHit; let run=0,maxRun=0; gap.forEach(x=>{ if(x===3){run++;maxRun=Math.max(maxRun,run);} else if(x!==0) run=0; });
    if(hasC||maxRun>=P.corteOtras) t=Math.min(t+1,M-1); } tid[k]=t; });
  const SP=Array(M).fill(0),SE=Array(M).fill(0);
  for(let k=0;k<n;k++){ SP[tid[k]]+=vp[k]; SE[tid[k]]+=ve[k]; }   // vp/ve son 0 fuera de silvo
@@ -44,7 +45,7 @@ function ref(c,vp,ve,años,P){
  return out;
 }
 const mapC={P:1,E:2,O:3,C:4,'?':null};
-function run(c,vp,ve,años,P=P0){ const r=s4Temporal(c.map(x=>new I(x)),vp.map(x=>new I(x)),ve.map(x=>new I(x)),años,P).map(i=>i.v); return r; }
+function run(c,vp,ve,años,P=P0,cut){ const r=s4Temporal(c.map(x=>new I(x)),vp.map(x=>new I(x)),ve.map(x=>new I(x)),años,P,cut?cut.map(x=>new I(x?1:0)):undefined).map(i=>i.v); return r; }
 const show=(a)=>a.map(x=>x===null?'?':'PEOC'[x===1?0:x===2?1:x===3?2:3]).join(' ');
 function ejemplo(nombre,seq,desde,esperado,vopt){
   const c=seq.split(' ').map(x=>mapC[x]); const años=c.map((_,i)=>desde+i);
@@ -66,14 +67,26 @@ ejemplo('9 cosecha + otras + silvo en ventana','P C O O P P',2000,'P C P P P P')
 ejemplo('10 cosecha, silvo a los 6 años','P C O O O O O E',2000,'P C O O O O O E');
 // ---------- cosecha implícita (paso previo de S4) ----------
 // Referencia imperativa, escrita aparte del código de imágenes
-function preRef(c,años,P){ const N=P.cosechaImplicita||0; if(N<1) return c.slice(); const n=c.length, ULT=P.ultimoAñoConfiable;
+function preRef(c,años,P){ const N=P.cosechaImplicita||0, n=c.length, ULT=P.ultimoAñoConfiable; if(N<1) return {out:c.slice(),imp:Array(n).fill(false)};
   const u=c.map(x=>x===null?0:x), S=u.map(x=>x===1||x===2), O=u.map(x=>x===3);
-  const out=c.slice(), llena=Array(n).fill(false);
+  const out=c.slice(), llena=Array(n).fill(false), imp=Array(n).fill(false);
   for(let k=1;k<n;k++) for(let L=1;L<=N-1&&k+L<n;L++){ let ok=S[k-1]&&S[k+L]; for(let j=0;j<L;j++) ok=ok&&O[k+j];
     if(ok) for(let j=0;j<L;j++){ out[k+j]=u[k-1]; llena[k+j]=true; } }
-  for(let k=1;k<n;k++) if(S[k-1]&&O[k]&&!llena[k]) out[k]= años[k]<=ULT?4:u[k-1];
+  for(let k=1;k<n;k++) if(S[k-1]&&O[k]&&!llena[k]){ out[k]= años[k]<=ULT?4:u[k-1]; if(años[k]<=ULT) imp[k]=true; }
+  return {out,imp}; }
+// duración mínima (S9), referencia imperativa: se recorren las rachas de izquierda a derecha sobre la serie ya limpiada
+function durRef(c,años,P){ const M=P.duracionMinima||0, n=c.length; const out=c.slice(); if(M<2) return out;
+  const ULT=P.ultimoAñoConfiable, W=P.ventanaPost, esS=x=>x===1||x===2; let k=1;
+  while(k<n){ if(esS(out[k])&&out[k-1]===3){ let e=k; while(e+1<n&&esS(out[e+1])) e++;
+      const L=e-k+1;
+      if(L<=M-1&&e+1<n&&out[e+1]===3&&años[e]<=ULT-2){
+        let last=0,g=0; for(let q=k-1;q>=0;q--){ if(out[q]===3) g++; else if(out[q]!==null&&out[q]!==0){ last=out[q]; break; } }
+        if(!(last>0&&g<=W-1)) for(let q=k;q<=e;q++) out[q]=3; }
+      k=e+1; } else k++; }
   return out; }
-function refC(c,vp,ve,años,P){ return ref(preRef(c,años,P),vp,ve,años,P); }
+function refC(c,vp,ve,años,P,cut){ const d=durRef(c,años,P), pr=preRef(d,años,P);
+  const vp2=vp.map((v,k)=>c[k]!==d[k]?0:v), ve2=ve.map((v,k)=>c[k]!==d[k]?0:v);
+  return ref(pr.out,vp2,ve2,años,P,pr.imp,cut); }
 const P1=Object.assign({},P0,{cosechaImplicita:2}), P2=Object.assign({},P0,{cosechaImplicita:1}), P3=Object.assign({},P0,{cosechaImplicita:3});
 function ejemploC(nombre,seq,desde,esperado,P=P1){
   const c=seq.split(' ').map(x=>mapC[x]); const años=c.map((_,i)=>desde+i);
@@ -86,7 +99,7 @@ ejemploC('2 hueco de 3 años: cosecha y vuelve','P P P O O O P P P',2000,'P P P 
 ejemploC('3 hueco de 5 años','P P P O O O O O P P',2000,'P P P C P P P P P P');
 ejemploC('4 hueco de 6 años: no vuelve a tiempo','P P P O O O O O O P P',2000,'P P P C O O O O O P P');
 ejemploC('5 con cosecha detectada: igual que antes','P P P C O O P P P',2000,'P P P C P P P P P');
-ejemploC('7 pino → otras → euca conserva la euca','P P P O O O E E E',2000,'P P P C E E E E E');
+ejemploC('7 pino → 3 años otras → euca: sin corte, misma especie (S2-B)','P P P O O O E E E',2000,'P P P C P P P P P');
 ejemploC('8 pino → 5 años otras → euca','P P P O O O O O E E',2000,'P P P C E E E E E E');
 ejemploC('A pino que no vuelve: cosecha y otras','P P P P P O O O O O O O',2000,'P P P P P C O O O O O O');
 ejemploC('B cosecha detectada y no vuelve','P P P C O O O O O O O',2000,'P P P C O O O O O O O');
@@ -96,6 +109,33 @@ ejemploC('otras de 1 año seguido de cosecha: cosecha','P P O C P',2000,'P P C P
 ejemploC('N=1: también el parpadeo es cosecha','P P P P O P P P',2000,'P P P P C P P P',P2);
 ejemploC('N=3: hueco de 2 años se rellena','P P P O O P P P',2000,'P P P P P P P P',P3);
 ejemploC('N=0 (apagado): igual que antes','P P P O O O P P P',2000,'P P P O O O P P P',P0);
+// ---------- duración mínima (S9), cosecha implícita sin corte (S2-B) e incendio como corte (S10) ----------
+const P4=Object.assign({},P0,{cosechaImplicita:2,duracionMinima:3}), P5=Object.assign({},P0,{cosechaImplicita:3,duracionMinima:2}), P6=Object.assign({},P0,{cosechaImplicita:2,duracionMinima:0});
+function ejemploD(nombre,seq,desde,esperado,P=P4,cutStr){
+  const c=seq.split(' ').map(x=>mapC[x]); const años=c.map((_,i)=>desde+i);
+  const cut=cutStr?cutStr.split(' ').map(x=>x==='1'):undefined;
+  const vp=c.map((x,i)=>x===1&&!(cut&&cut[i])?80:0), ve=c.map((x,i)=>x===2&&!(cut&&cut[i])?80:0);
+  const o=show(run(c,vp,ve,años,P,cut)), r=show(refC(c,vp,ve,años,P,cut));
+  console.log((o===esperado&&r===esperado?'OK   ':'FALLA')+' '+nombre+': '+seq+' -> '+o+(o===esperado?'':'  (esperado '+esperado+', ref '+r+')'));
+}
+ejemploD('S9 plantación de 1 año se borra','O O O O P O O O O O O O',2000,'O O O O O O O O O O O O');
+ejemploD('S9 plantación de 2 años se borra','O O O P P O O O O O O O',2000,'O O O O O O O O O O O O');
+ejemploD('S9 plantación de 3 años se conserva (y queda su cosecha)','O O O P P P O O O O O O',2000,'O O O P P P C O O O O O');
+ejemploD('S9 replante tras cosecha (corto) se respeta','P P P C O P P O O O O O',2000,'P P P C P P P C O O O O');
+ejemploD('S9 racha que parte en el primer año no se borra','P P O O O O O O O O O O',2000,'P P C O O O O O O O O O');
+ejemploD('S9 racha que termina en 2025 no se juzga','O O O O O O O O O P P O',2015,'O O O O O O O O O P P P');
+ejemploD('S9 racha de 1 año en 2023 seguida de «otras» se borra','O O O O O O O O P O O O',2015,'O O O O O O O O O O O O');
+ejemploD('S9 racha de 1 año en 2024 no se juzga','O O O O O O O O O P O O',2015,'O O O O O O O O O P C P');
+ejemploD('S9 seguida de cosecha detectada: se conserva','O O O P P C O O O O O O',2000,'O O O P P C O O O O O O');
+ejemploD('S9 apagado (0): se conserva y suma su cosecha','O O O P O O O O O O O O',2000,'O O O P C O O O O O O O',P6);
+ejemploD('S9 plantación previa lejos (≥5 años de otras): la racha corta se borra','P P P P O O O O O O O P P O O O',2000,'P P P P C O O O O O O O O O O O');
+ejemploD('S9 el flicker no cuenta (pino O pino sigue pino)','P P P P O P P P',2000,'P P P P P P P P');
+ejemploD('S2-B pino → 1 año otras → euca: misma especie','P P P P O E E E E',2000,'P P P P P P P P P');
+ejemploD('S2-B cosecha detectada + otras → euca: cambia','P P P C O E E E',2000,'P P P C E E E E');
+ejemploD('S2-B 5 años de otras → euca: cambia','P P P O O O O O E E',2000,'P P P C E E E E E E');
+ejemploD('S10 sin incendio, sin corte: una especie (gana pino)','P P P P P E E E E',2000,'P P P P P P P P P');
+ejemploD('S10 incendio corregido cuenta como corte: cambia, los años quemados siguen con la especie previa','P P P P P E E E E',2000,'P P P P P E E E E',P0,'0 0 0 1 1 0 0 0 0');
+ejemploD('S10 incendio, 1 año de «otras» y euca: cambia sin esperar 5 años (el hueco posterior al incendio ya es el tramo nuevo)','P P P P O E E E E',2000,'P P P P E E E E E',P4,'0 0 0 1 0 0 0 0 0');
 let badC=0,NC=30000;
 for(let it=0;it<NC;it++){
   const n=31, años=Array.from({length:n},(_,i)=>1996+i);
@@ -107,6 +147,18 @@ for(let it=0;it<NC;it++){
   if(JSON.stringify(o)!==JSON.stringify(r)){ if(badC<3) console.log('DIFERENCIA cosecha implícita\n c  ',show(c),'\n img',show(o),'\n ref',show(r)); badC++; }
 }
 console.log('fuzz cosecha implícita:',NC-badC,'/',NC,'iguales a la referencia');
+let badD=0,ND=40000;
+for(let it=0;it<ND;it++){
+  const n=31, años=Array.from({length:n},(_,i)=>1996+i);
+  const stay=0.5+Math.random()*0.45; let cur=rnd(4)+1; const c=[];
+  for(let k=0;k<n;k++){ if(Math.random()>stay) cur=rnd(4)+1; c.push(Math.random()<0.03?null:cur); }
+  const cut=c.map(()=>false); for(let k=0;k<n;k++) if((c[k]===1||c[k]===2)&&Math.random()<0.06){ cut[k]=true; if(Math.random()<0.5&&k+1<n&&(c[k+1]===1||c[k+1]===2)) cut[k+1]=true; }
+  const vp=c.map((x,k)=>(x===1||x===2)&&!cut[k]?rnd(101):0), ve=c.map((x,k)=>(x===1||x===2)&&!cut[k]?rnd(101):0);
+  const P=[P4,P5,P6,P1][it%4];
+  const o=run(c,vp,ve,años,P,cut), r=refC(c,vp,ve,años,P,cut);
+  if(JSON.stringify(o)!==JSON.stringify(r)){ if(badD<3) console.log('DIFERENCIA duración/incendio\n c  ',show(c),'\n cut',cut.map(x=>x?1:0).join(' '),'\n img',show(o),'\n ref',show(r)); badD++; }
+}
+console.log('fuzz duración mínima + cortes por incendio:',ND-badD,'/',ND,'iguales a la referencia');
 // Invariante: con la regla activa no queda silvicultura → otras sin cosecha en medio (años ≤ último confiable)
 let viol=0,NI=20000;
 for(let it=0;it<NI;it++){ const n=31, años=Array.from({length:n},(_,i)=>1996+i); let cur=rnd(4)+1; const c=[];
