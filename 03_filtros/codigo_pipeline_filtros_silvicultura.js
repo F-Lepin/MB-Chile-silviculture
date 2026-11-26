@@ -60,6 +60,7 @@ var PARAM = {
   corteOtras: 5,                            // S4  años consecutivos de "otras" que cortan un tramo
   ventanaPost: 5,                           // S4  años posteriores a una cosecha para decidir si vuelve la silvicultura
   ultimoAñoConfiable: 2025,                 // S4  2026 no cuenta como dato
+  cosechaImplicita: 2,                      // S4  años seguidos de «otras» tras silvicultura que implican una cosecha no detectada (0 = apagado)
   maxTramos: 6,                             // S4  tramos máximos por píxel (si hay más, se unen al último)
   especieMinPx: 22                          // S5  ≈ 2 ha a 30 m (a calibrar)
 };
@@ -130,8 +131,43 @@ function s2Fuego(cs, años, desfase, atrasMax) {
   return {cs: out, corr: corr};
 }
 
+// S4 · Paso previo «cosecha implícita»: una plantación no pasa a «otras» sin una cosecha en medio.
+//   Un año de «otras» justo después de un año de silvicultura se marca como cosechado (cosecha que el clasificador no vio).
+//   Excepciones, con N = P.cosechaImplicita (0 = apagado):
+//   · Si la racha de «otras» dura menos de N años y la silvicultura vuelve justo después, no se marca cosecha: los años se
+//     rellenan con la clase del año anterior (S4 después unifica la especie del tramo). Evita puntos de cosechado de un año
+//     cuando el clasificador solo parpadea.
+//   · Los años posteriores al último año confiable no cuentan como dato: continúan con la clase del año anterior.
+//   Se mira solo la clase original (antes de modificar nada) y se asume una serie de años consecutivos.
+function s4CosechaImplicita(c, años, P) {
+  var N = P.cosechaImplicita || 0;
+  if (N < 1) return c;
+  var n = c.length, ULT = P.ultimoAñoConfiable, k, j, L;
+  var u = c.map(function (x) { return x.unmask(0); });
+  var S = u.map(function (x) { return x.eq(1).or(x.eq(2)); });
+  var O = u.map(function (x) { return x.eq(3); });
+  var out = c.slice(), llena = [];
+  for (k = 0; k < n; k++) llena.push(ee.Image(0));
+  for (k = 1; k < n; k++) {
+    for (L = 1; L <= N - 1 && k + L < n; L++) {
+      var cond = S[k - 1].and(S[k + L]);
+      for (j = 0; j < L; j++) cond = cond.and(O[k + j]);
+      for (j = 0; j < L; j++) {
+        out[k + j] = out[k + j].where(cond, u[k - 1]);
+        llena[k + j] = llena[k + j].or(cond);
+      }
+    }
+  }
+  for (k = 1; k < n; k++) {
+    var cc = S[k - 1].and(O[k]).and(llena[k].not());
+    out[k] = out[k].where(cc, años[k] <= ULT ? ee.Image(4) : u[k - 1]);
+  }
+  return out;
+}
+
 // S4 · Consistencia temporal por tramos.
 //   c[k]: clase del año k (1,2,3,4; enmascarado = sin dato)   vp[k], ve[k]: votos de pino y euca del año (0 si no vota)
+// 0) Paso previo (s4CosechaImplicita): silvicultura → «otras» sin cosecha en medio se interpreta como una cosecha no detectada.
 // 1) Tramos: años de silvicultura entre cortes. Cortan: un año de cosecha, o ≥ corteOtras años consecutivos de "otras".
 // 2) Una especie por tramo; solo se permite pino → euca, una vez, en un corte: se elige el punto de cambio que más concuerda
 //    con la suma de votos de cada tramo.
@@ -139,6 +175,7 @@ function s2Fuego(cs, años, desfase, atrasMax) {
 //    los años intermedios toman esa especie; si no y hay datos suficientes, el cosechado de continuación pasa a "otras"; si no hay
 //    datos suficientes (ultimoAñoConfiable − año de cosecha < ventanaPost) continúa la especie anterior a la cosecha.
 function s4Temporal(c, vp, ve, años, P) {
+  c = s4CosechaImplicita(c, años, P);
   var n = c.length, M = P.maxTramos, W = P.ventanaPost, ULT = P.ultimoAñoConfiable;
   var Z = ee.Image(0), j, k;
   // --- pasada 1: tramos y votos por tramo
@@ -412,7 +449,8 @@ var DEF_PASOS = [
   {k: 's2', txt: 'S2 · Corrección por incendios', p: [['fuegoDesfase', 'desfase incendio → cosecha (años)', 0, 3], ['fuegoAtrasMax', 'años atrás para buscar pino/euca', 1, 10]]},
   {k: 's3', txt: 'S3 · Área mínima', p: [['areaMinPx', 'umbral (px de 30 m; filtro general = 11)', 1, 256]]},
   {k: 's4', txt: 'S4 · Consistencia temporal', p: [['corteOtras', 'años de «otras» que cortan un tramo', 1, 10], ['ventanaPost', 'ventana post-cosecha (años)', 1, 10],
-    ['ultimoAñoConfiable', 'último año confiable', AÑO_INI, AÑO_FIN], ['maxTramos', 'tramos máx. por píxel', 1, 8]]},
+    ['ultimoAñoConfiable', 'último año confiable', AÑO_INI, AÑO_FIN], ['maxTramos', 'tramos máx. por píxel', 1, 8],
+    ['cosechaImplicita', '«otras» tras silvicultura = cosecha (años seguidos; 0 = no)', 0, 5]]},
   {k: 's5', txt: 'S5 · Consistencia espacial de especie (umbral a calibrar)', p: [['especieMinPx', 'umbral (píxeles de 30 m)', 1, 256]]}
 ];
 
@@ -748,7 +786,7 @@ btnExportar.onClick(function () {
         s1: p.on.s1 ? 1 : 0, s2: p.on.s2 && p.fuegoOk ? 1 : 0, s3: p.on.s3 ? 1 : 0, s4: p.on.s4 ? 1 : 0, s5: p.on.s5 ? 1 : 0,
         relleno_max: p.P.rellenoMaxAños, fuego_desfase: p.P.fuegoDesfase, fuego_atras_max: p.P.fuegoAtrasMax,
         area_min_px: p.P.areaMinPx, corte_otras: p.P.corteOtras, ventana_post: p.P.ventanaPost, ultimo_año_confiable: p.P.ultimoAñoConfiable,
-        max_tramos: p.P.maxTramos, especie_min_px: p.P.especieMinPx
+        max_tramos: p.P.maxTramos, cosecha_implicita: p.P.cosechaImplicita, especie_min_px: p.P.especieMinPx
       }),
       description: nombre, assetId: id, region: regionTrabajo(), scale: ESCALA_EXPORT, maxPixels: 1e13,
       pyramidingPolicy: {'.default': 'mode'}

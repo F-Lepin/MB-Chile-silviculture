@@ -44,7 +44,7 @@ function ref(c,vp,ve,años,P){
  return out;
 }
 const mapC={P:1,E:2,O:3,C:4,'?':null};
-function run(c,vp,ve,años){ const r=s4Temporal(c.map(x=>new I(x)),vp.map(x=>new I(x)),ve.map(x=>new I(x)),años,P0).map(i=>i.v); return r; }
+function run(c,vp,ve,años,P=P0){ const r=s4Temporal(c.map(x=>new I(x)),vp.map(x=>new I(x)),ve.map(x=>new I(x)),años,P).map(i=>i.v); return r; }
 const show=(a)=>a.map(x=>x===null?'?':'PEOC'[x===1?0:x===2?1:x===3?2:3]).join(' ');
 function ejemplo(nombre,seq,desde,esperado,vopt){
   const c=seq.split(' ').map(x=>mapC[x]); const años=c.map((_,i)=>desde+i);
@@ -64,6 +64,58 @@ ejemplo('7 cinco otras entre especies','P P O O O O O E E',2000,'P P O O O O O E
 ejemplo('8 cuatro otras: mismo tramo','P P O O O O E E',2000,'P P O O O O P P',[[80,20],[80,20],,,,, [30,70],[30,70]].map((x,i)=>x));
 ejemplo('9 cosecha + otras + silvo en ventana','P C O O P P',2000,'P C P P P P');
 ejemplo('10 cosecha, silvo a los 6 años','P C O O O O O E',2000,'P C O O O O O E');
+// ---------- cosecha implícita (paso previo de S4) ----------
+// Referencia imperativa, escrita aparte del código de imágenes
+function preRef(c,años,P){ const N=P.cosechaImplicita||0; if(N<1) return c.slice(); const n=c.length, ULT=P.ultimoAñoConfiable;
+  const u=c.map(x=>x===null?0:x), S=u.map(x=>x===1||x===2), O=u.map(x=>x===3);
+  const out=c.slice(), llena=Array(n).fill(false);
+  for(let k=1;k<n;k++) for(let L=1;L<=N-1&&k+L<n;L++){ let ok=S[k-1]&&S[k+L]; for(let j=0;j<L;j++) ok=ok&&O[k+j];
+    if(ok) for(let j=0;j<L;j++){ out[k+j]=u[k-1]; llena[k+j]=true; } }
+  for(let k=1;k<n;k++) if(S[k-1]&&O[k]&&!llena[k]) out[k]= años[k]<=ULT?4:u[k-1];
+  return out; }
+function refC(c,vp,ve,años,P){ return ref(preRef(c,años,P),vp,ve,años,P); }
+const P1=Object.assign({},P0,{cosechaImplicita:2}), P2=Object.assign({},P0,{cosechaImplicita:1}), P3=Object.assign({},P0,{cosechaImplicita:3});
+function ejemploC(nombre,seq,desde,esperado,P=P1){
+  const c=seq.split(' ').map(x=>mapC[x]); const años=c.map((_,i)=>desde+i);
+  const vp=c.map(x=>x===1?80:0), ve=c.map(x=>x===2?80:0);
+  const o=show(run(c,vp,ve,años,P)), r=show(refC(c,vp,ve,años,P));
+  console.log((o===esperado&&r===esperado?'OK   ':'FALLA')+' cosecha implícita '+nombre+': '+seq+' -> '+o+(o===esperado?'':'  (esperado '+esperado+', ref '+r+')'));
+}
+ejemploC('1 hueco de 1 año (parpadeo): se rellena','P P P P O P P P',2000,'P P P P P P P P');
+ejemploC('2 hueco de 3 años: cosecha y vuelve','P P P O O O P P P',2000,'P P P C P P P P P');
+ejemploC('3 hueco de 5 años','P P P O O O O O P P',2000,'P P P C P P P P P P');
+ejemploC('4 hueco de 6 años: no vuelve a tiempo','P P P O O O O O O P P',2000,'P P P C O O O O O P P');
+ejemploC('5 con cosecha detectada: igual que antes','P P P C O O P P P',2000,'P P P C P P P P P');
+ejemploC('7 pino → otras → euca conserva la euca','P P P O O O E E E',2000,'P P P C E E E E E');
+ejemploC('8 pino → 5 años otras → euca','P P P O O O O O E E',2000,'P P P C E E E E E E');
+ejemploC('A pino que no vuelve: cosecha y otras','P P P P P O O O O O O O',2000,'P P P P P C O O O O O O');
+ejemploC('B cosecha detectada y no vuelve','P P P C O O O O O O O',2000,'P P P C O O O O O O O');
+ejemploC('serie del usuario: sin cambios','O O O P P P P C P P P P C P P P',2000,'O O O P P P P C P P P P C P P P');
+ejemploC('último año (2026) no cuenta: continúa','P P P P P P P O',2019,'P P P P P P P P');
+ejemploC('otras de 1 año seguido de cosecha: cosecha','P P O C P',2000,'P P C P P');
+ejemploC('N=1: también el parpadeo es cosecha','P P P P O P P P',2000,'P P P P C P P P',P2);
+ejemploC('N=3: hueco de 2 años se rellena','P P P O O P P P',2000,'P P P P P P P P',P3);
+ejemploC('N=0 (apagado): igual que antes','P P P O O O P P P',2000,'P P P O O O P P P',P0);
+let badC=0,NC=30000;
+for(let it=0;it<NC;it++){
+  const n=31, años=Array.from({length:n},(_,i)=>1996+i);
+  const stay=0.6+Math.random()*0.35; let cur=rnd(4)+1; const c=[];
+  for(let k=0;k<n;k++){ if(Math.random()>stay) cur=rnd(4)+1; c.push(Math.random()<0.04?null:cur); }
+  const vp=c.map(x=>(x===1||x===2)?rnd(101):0), ve=c.map(x=>(x===1||x===2)?rnd(101):0);
+  const P=[P0,P1,P2,P3][it%4];
+  const o=run(c,vp,ve,años,P), r=refC(c,vp,ve,años,P);
+  if(JSON.stringify(o)!==JSON.stringify(r)){ if(badC<3) console.log('DIFERENCIA cosecha implícita\n c  ',show(c),'\n img',show(o),'\n ref',show(r)); badC++; }
+}
+console.log('fuzz cosecha implícita:',NC-badC,'/',NC,'iguales a la referencia');
+// Invariante: con la regla activa no queda silvicultura → otras sin cosecha en medio (años ≤ último confiable)
+let viol=0,NI=20000;
+for(let it=0;it<NI;it++){ const n=31, años=Array.from({length:n},(_,i)=>1996+i); let cur=rnd(4)+1; const c=[];
+  for(let k=0;k<n;k++){ if(Math.random()>0.75) cur=rnd(4)+1; c.push(cur); }
+  const vp=c.map(x=>(x===1||x===2)?rnd(101):0), ve=c.map(x=>(x===1||x===2)?rnd(101):0);
+  const o=run(c,vp,ve,años,P1); let mal=false;
+  for(let k=1;k<n;k++) if((o[k-1]===1||o[k-1]===2)&&o[k]===3&&años[k]<=2025) mal=true;
+  if(mal) viol++; }
+console.log('series con silvicultura → otras sin cosecha en la salida:',viol,'de',NI);
 // ---------- fuzz ----------
 function rnd(n){return Math.floor(Math.random()*n)}
 let bad=0,N=30000;

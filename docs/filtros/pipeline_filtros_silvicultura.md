@@ -1,6 +1,6 @@
 # Pipeline de filtrado de la clasificación de silvicultura
 
-MapBiomas Chile · Colección 3 · Borrador para discutir con el equipo de clasificación · 12 de noviembre de 2026
+MapBiomas Chile · Colección 3 · Borrador para discutir con el equipo de clasificación · 12 de noviembre de 2026 · S4 actualizado el 26 de noviembre de 2026 (cosecha implícita)
 
 ## 1. Idea general
 
@@ -31,9 +31,11 @@ Los pasos se aplican por píxel y en este orden. Usan datos de silvicultura, inc
 | S1 | **Relleno de huecos de mosaico.** Un año con mosaico incompleto se rellena con el año vecino más cercano. 1996 se rellena con años posteriores y 2026 con años anteriores. | Distancia máxima: 3 años | No. G1 solo rellena píxeles en 0 y no rellena el último año. |
 | S2 | **Corrección por incendios.** El clasificador confunde el bosque quemado con cosechado. Si un tramo de cosechado empieza el año de un incendio de MapBiomas Fuego (o poco después), todo el tramo vuelve al último pino o eucalipto que tuvo el píxel. Cosechado nunca pasa a "otras". Detalle y ejemplos más abajo. | Desfase incendio → cosechado: 1 año<br>Búsqueda del pino/euca previo: hasta 5 años atrás<br>Años sin dato de fuego: no se corrige | No. La clasificación general no trae información de fuego ni distingue cosecha de quema. |
 | S3 | **Área mínima.** Un parche de pino o de eucalipto menor al umbral pasa a otras. | Umbral: por decidir (hoy 22 px ≈ 2 ha) | Sí, G9 (11 px, espacio-temporal). Un paso propio solo se justifica con un umbral mayor. |
-| S4 | **Consistencia temporal por tramos.** Corta la serie de cada píxel en tramos y asigna una sola especie por tramo. Solo se permite el cambio pino → euca, y solo con una cosecha o un hueco largo en medio. También regula cuánto dura la cosecha y qué pasa después. Detalle y ejemplos más abajo. | Años de "otras" que cortan el tramo: 5<br>Ventana posterior a la cosecha: 5 años<br>Último año confiable: 2025 (2026 no cuenta como dato) | Parcial. G6 y G7 suavizan oscilaciones simétricas, si incluyen 79/80. G4 conserva la cosecha entre años de silvicultura, lo contrario de esta regla. No existe una regla direccional ni de cosecha de un año. |
+| S4 | **Consistencia temporal por tramos.** Corta la serie de cada píxel en tramos y asigna una sola especie por tramo. Solo se permite el cambio pino → euca, y solo con una cosecha o un hueco largo en medio. Regla de base: **una plantación no pasa a "otras" sin una cosecha en medio**; si el clasificador no la vio, se marca como cosecha implícita. También regula cuánto dura la cosecha y qué pasa después. Detalle y ejemplos más abajo. | Años de "otras" que cortan el tramo: 5<br>Ventana posterior a la cosecha: 5 años<br>Último año confiable: 2025 (2026 no cuenta como dato)<br>Cosecha implícita: 2 años (0 = apagado) | Parcial. G6 y G7 suavizan oscilaciones simétricas, si incluyen 79/80. G4 conserva la cosecha entre años de silvicultura, lo contrario de esta regla. No existe una regla direccional ni de cosecha de un año. |
 | S5 | **Consistencia espacial de especie.** Dentro de un parche, un fragmento de la especie minoritaria menor al umbral, en contacto con la mayoritaria, pasa a la mayoritaria si S4 no lo resolvió.<br>Se trabaja por fragmentos y no por porcentaje del parche, porque los rodales vecinos de especies distintas son normales. | Umbral: por decidir (píxeles, hectáreas o porcentaje) | Casi no. G9 solo absorbe fragmentos de hasta 11 px. |
 | S6 | **Reclasificar a códigos finales.** Pino → 79 · eucalipto → 80 · cosechado → 83 (otros usos forestales). Otras = sin transversal: queda la clase base. | — | No aplica. |
+
+**Con la cosecha implícita y el retorno de 5 años de S4, el relleno de huecos de G4 queda prácticamente sin trabajo propio en la serie de silvicultura.** Aunque el equipo general confirme que G4 trata 79, 80 y 83 como silvicultura, la cosecha implícita sigue siendo necesaria, porque G4 rellena huecos pero no inserta cosechas.
 
 **Coherencia con el retorno de uso (G4):** G4 rellena huecos de hasta 5 años entre dos años de silvicultura, con la clase de cada lado. Como S4 deja una sola especie por tramo, esos huecos se rellenan con la misma especie en ambos lados. Si el hueco es de exactamente 5 años, S4 lo trata como corte y G4 lo rellena con la especie de cada lado, de modo que el cambio pino → euca queda en la mitad del hueco. Si es de 6 años o más, S4 también lo corta, pero G4 no lo rellena y los años quedan como "otras".
 
@@ -58,6 +60,7 @@ Ejemplos. P = pino, E = eucalipto, C = cosechado, O = otras. Cada casillero es u
 
 ### Detalle de S4
 
+- **Cosecha implícita (paso previo, parámetro `cosechaImplicita`, por defecto 2):** un año de "otras" justo después de un año de silvicultura se marca como cosechado, como una cosecha que el clasificador no detectó. Desde ahí siguen las reglas de abajo: si la silvicultura vuelve dentro de 5 años, los años intermedios toman esa especie; si no, queda "otras". Dos excepciones: (1) si la racha de "otras" dura menos años que el parámetro y la silvicultura vuelve justo después, no se marca cosecha y los años se rellenan con la clase anterior (evita puntos de cosechado de un año cuando el clasificador solo parpadea); (2) un año posterior al último año confiable (2026) no cuenta como dato y continúa con la clase del año anterior. Con 0 el paso queda apagado.
 - **Cortes de la serie:** cada año de cosecha, y cada tramo de al menos 5 años consecutivos de "otras" entre dos años de silvicultura (se interpreta como una cosecha no detectada).
 - **Especie por tramo:** cada tramo toma una sola especie, por votación ponderada con p_pino y p_euca de sus años.
 - **Cambio de especie:** solo pino → euca, y solo en un corte. Euca → pino no se permite, ni siquiera con cosecha en medio. Si un tramo euca viene antes de uno pino, se elige el punto de cambio que mejor concuerda con las probabilidades.
@@ -75,7 +78,11 @@ Ejemplos. P = pino, E = eucalipto, C = cosechado, O = otras. Cada casillero es u
 | 4. Cosecha de más de un año, con silvicultura después | P P C C C P | P P C P P P | La cosecha dura un año. Los años siguientes toman la clase detectada después. |
 | 5. Cosecha sin silvicultura en los 5 años siguientes | P P C C C C C C | P P C O O O O O | La cosecha dura un año. Sin silvicultura en 5 años, lo que sigue queda en "otras". |
 | 6. Cosecha reciente (2022), sin 5 años de datos después. Serie 2020 a 2026 | P P C C O O O | P P C P P P P | Con 2026 sin contar como dato, no hay 5 años: los años siguientes continúan con pino. |
-| 7. Cinco años de "otras" entre dos especies | P P O O O O O E E | Sin cambios en S4 | Los 5 años de "otras" cuentan como corte: el cambio pino → euca se acepta. Después, G4 rellena el hueco. |
+| 7. Cinco años de "otras" entre dos especies, sin cosecha detectada | P P O O O O O E E | P P C E E E E E E | La cosecha implícita permite el cambio pino → euca, y los años siguientes toman la euca. |
+| 8. Hueco de "otras" sin cosecha, silvicultura vuelve en 3 años | P P P O O O P P P | P P P C P P P P P | Una plantación no pasa a "otras" sin cosecha: se marca en el primer año y la silvicultura vuelve dentro de la ventana. |
+| 9. Parpadeo de un año | P P P P O P P P | P P P P P P P P | Racha de "otras" menor al parámetro con silvicultura a ambos lados: se rellena y no se crea una cosecha de un año. |
+| 10. Hueco de 6 años | P P P O O O O O O P P | P P P C O O O O O P P | La silvicultura vuelve fuera de la ventana de 5 años: cosecha y luego "otras". |
+| 11. La plantación no vuelve | P P P P P O O O O O O O | P P P P P C O O O O O O | Queda marcada la cosecha que el clasificador no vio y después "otras". |
 
 ## 4. Etapa 2 · Integración
 

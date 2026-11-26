@@ -7,7 +7,7 @@ Toma las clasificaciones preliminares ya exportadas y aplica, por ecorregión y 
 | S1 | Relleno de huecos de mosaico con el año vecino más cercano | hasta 3 años |
 | S2 | Corrección por incendios: cosechado que empieza el año de un incendio vuelve al último pino o eucalipto previo | MapBiomas Fuego Col 1, años 2013–2025 |
 | S3 | Área mínima de plantación (pino + eucalipto) | 11 px |
-| S4 | Consistencia temporal por tramos: una especie por tramo, solo pino → eucalipto con corte, cosecha de 1 año, regla de 5 años | |
+| S4 | Consistencia temporal por tramos: una especie por tramo, solo pino → eucalipto con corte, cosecha de 1 año, regla de 5 años. Paso previo «cosecha implícita»: una plantación no pasa a «otras» sin una cosecha en medio (parámetro `cosechaImplicita`, 2; 0 = apagado) | |
 | S5 | Consistencia espacial de especie: un fragmento pequeño pegado a uno mayor de la otra especie pasa a la otra | 22 px (a calibrar) |
 | S6 | Códigos finales: pino 79, eucalipto 80, cosechado 83 | |
 
